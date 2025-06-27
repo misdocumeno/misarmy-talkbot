@@ -1,0 +1,35 @@
+{
+    "files.exclude": {
+        "**/.git": true,
+        "**/.svn": true,
+        "**/.hg": true,
+        "**/CVS": true,
+        "**/.DS_Store": true,
+        "**/Thumbs.db": true,
+        "**/__pycache__": true,
+        // "**/.venv": true,
+        "**/LC_MESSAGES/messages.mo": true
+    },
+    "python.defaultInterpreterPath": "./.venv/bin/python",
+    "cSpell.words": [
+        "aiosqlite",
+        "aresample",
+        "asetrate",
+        "atempo",
+        "colorlog",
+        "discordapp",
+        "ffmpy",
+        "gettext",
+        "gtts",
+        "levelname",
+        "Messageable",
+        "misarmy",
+        "msgid",
+        "pyproject",
+        "sessionmaker",
+        "stopall",
+        "talkbot",
+        "vencord",
+        "venv"
+    ]
+}

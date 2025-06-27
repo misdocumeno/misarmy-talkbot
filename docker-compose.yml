@@ -1,0 +1,13 @@
+services:
+  misarmy_talkbot:
+    image: misarmy_talkbot
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - misarmy-talkbot-config:/home/bot/config
+    env_file:
+      - .env
+
+volumes:
+  misarmy-talkbot-config:

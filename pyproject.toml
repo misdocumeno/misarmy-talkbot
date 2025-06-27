@@ -1,0 +1,30 @@
+[tool.poetry]
+name = "misarmy-talkbot"
+version = "0.1.0"
+description = ""
+authors = ["misdocumeno <misdocumeno@hotmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+gtts = "^2.5.3"
+jstyleson = "^0.0.2"
+pydantic = "^2.9.0"
+python-dotenv = "^1.0.1"
+edge-tts = "^6.1.12"
+sqlalchemy = "^2.0.34"
+json5 = "^0.9.25"
+aiofiles = "^24.1.0"
+aiosqlite = "^0.20.0"
+ffmpy3 = "^0.2.4"
+regex = "^2024.9.11"
+colorlog = "^6.8.2"
+discord-py = {extras = ["voice"], version = "^2.5.2"}
+
+
+[tool.poetry.group.dev.dependencies]
+autopep8 = "^2.3.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

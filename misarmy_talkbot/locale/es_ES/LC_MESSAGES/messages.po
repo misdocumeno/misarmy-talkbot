@@ -1,0 +1,217 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+
+msgid "follow_cmd_description"
+msgstr "Hacer que el bot comience a leer tus mensajes en voz alta en tu canal de voz."
+
+msgid "follow_success"
+msgstr "¡Está bien, leeré tus mensajes en voz alta!"
+
+msgid "already_following"
+msgstr "¡Ya estoy leyendo tus mensajes!"
+
+msgid "not_in_voice_channel"
+msgstr "¡No estás en un canal de voz!"
+
+msgid "not_in_same_voice_channel"
+msgstr "¡No estamos en el mismo canal!"
+
+
+msgid "unfollow_cmd_description"
+msgstr "Hacer que el bot deje de leer tus mensajes en voz alta en tu canal de voz."
+
+msgid "unfollow_success"
+msgstr "No leeré más tus mensajes."
+
+msgid "not_following"
+msgstr "¡No estoy leyendo tus mensajes!"
+
+
+msgid "ignore_cmd_description"
+msgstr "Alternar entre leer e ignorar tus mensajes en este canal si el bot te está siguiendo."
+
+msgid "ignore_success"
+msgstr "Ignoraré tus mensajes en este canal de ahora en adelante."
+
+msgid "un_ignore_success"
+msgstr "¡Volveré a leer tus mensajes en este canal!"
+
+
+msgid "stop_cmd_description"
+msgstr "Hacer que el bot deje de leer en voz alta el mensaje actual y los siguientes (solo tus mensajes)."
+
+msgid "stop_all_cmd_description"
+msgstr "Hacer que el bot deje de leer en voz alta el mensaje actual y los siguientes (¡Los de todos!)."
+
+msgid "not_talking"
+msgstr "No estoy hablando."
+
+msgid "shut_up_success"
+msgstr "Bueno, pararé, lo siento..."
+
+
+msgid "skip_cmd_description"
+msgstr "Hacer que el bot salte al siguiente mensaje."
+
+msgid "skip_no_permission"
+msgstr "Sólo puedes saltar tus propios mensajes."
+
+
+msgid "mute_cmd_description"
+msgstr "Dejar de leer los mensajes de alguien."
+
+msgid "mute_cmd_target_argument_description"
+msgstr "La persona a quien dejar de leer sus mensajes."
+
+
+msgid "voice_cmd_description"
+msgstr "Cambiar tu voz actual."
+
+msgid "voice_cmd_new_voice_argument_description"
+msgstr "La nueva voz que quieres tener."
+
+msgid "voice_cmd_current_voice"
+msgstr "Tu voz actual es {voice}"
+
+msgid "voice_cmd_same_voice"
+msgstr "¡Ya tienes esa voz!"
+
+msgid "voice_cmd_new_voice"
+msgstr "Ahora tu voz será {voice}"
+
+msgid "voice_cmd_new_voice_footer"
+msgstr "Tu tono de voz y velocidad se han restaurado a 1.0"
+
+
+msgid "pitch_cmd_description"
+msgstr "Cambiar tu tono de voz actual."
+
+msgid "pitch_cmd_pitch_argument_description"
+msgstr "El nuevo tono de voz que quieres tener."
+
+msgid "pitch_cmd_current_pitch"
+msgstr "Tu tono de voz actual es {pitch}"
+
+msgid "pitch_cmd_same_pitch"
+msgstr "¡Ya tienes ese tono de voz!"
+
+msgid "pitch_cmd_new_pitch"
+msgstr "Ahora tu tono de voz será {pitch}"
+
+
+msgid "speed_cmd_description"
+msgstr "Cambiar tu velocidad de voz actual."
+
+msgid "speed_cmd_speed_argument_description"
+msgstr "La nueva velocidad que quieres tener."
+
+msgid "speed_cmd_current_speed"
+msgstr "Tu velocidad de voz actual es {speed}"
+
+msgid "speed_cmd_same_speed"
+msgstr "¡Ya tienes esa velocidad de voz!"
+
+msgid "speed_cmd_new_speed"
+msgstr "Ahora la velocidad de tu voz será {speed}"
+
+
+msgid "preset_cmd_description"
+msgstr "Guardar tu configuración de voz actual como preset, o cargar uno existente."
+
+msgid "preset_cmd_action_argument_description"
+msgstr "La acción a realizar."
+
+msgid "preset_cmd_preset_name_argument_description"
+msgstr "El nombre del preset."
+
+msgid "preset_cmd_no_preset_arg"
+msgstr "¡Debes especificar un preset!"
+
+msgid "preset_cmd_no_presets"
+msgstr "No tienes presets guardados."
+
+msgid "preset_cmd_does_not_exist"
+msgstr "¡Ese preset no existe!"
+
+msgid "preset_cmd_list"
+msgstr "{presets}"
+
+msgid "preset_cmd_loaded"
+msgstr "¡Preset cargado!"
+
+msgid "preset_cmd_saved"
+msgstr "¡Preset guardado!"
+
+msgid "preset_cmd_deleted"
+msgstr "¡Preset borrado!"
+
+msgid "preset_cmd_already_exists"
+msgstr "¡Ya existe un preset con ese nombre!"
+
+
+msgid "invite_cmd_description"
+msgstr "Generar un link de invitación para meter a este bot en otro servidor."
+
+msgid "invite_title"
+msgstr "Invitar a TalkBot"
+
+msgid "invite_description"
+msgstr "¡Invita a este bot a otro servidor! o únete al servidor de soporte."
+
+msgid "bot_invite_button"
+msgstr "Invitar bot"
+
+msgid "server_invite_button"
+msgstr "Unirse al servidor"
+
+
+msgid "sync_cmd_description"
+msgstr "Sincronizar todos los comandos slash en todas las guilds."
+
+msgid "sync_cmd_sync_done"
+msgstr "¡Comandos slash globales sincronizados!"
+
+
+msgid "config_cmd_description"
+msgstr "Ver la configuración actual del servidor o cambiarla."
+
+msgid "config_cmd_action_argument_description"
+msgstr "La acción a realizar."
+
+msgid "config_cmd_set_response"
+msgstr "Vale, envía un nuevo json para utilizarlo como configuración de servidor, como bloque de código o como archivo. ¡No olvides mencionarme!"
+
+msgid "config_cmd_set_config_updated"
+msgstr "¡Configuración del servidor actualizada!"
+
+msgid "config_cmd_set_invalid_json"
+msgstr "¡Ese json no es válido! Intenta ver la configuración predeterminada con **/config default**"
+
+msgid "config_cmd_set_invalid_locale"
+msgstr "Ese json es válido, pero no es un locale compatible. Puedes contribuir con un nuevo locale al [repositorio de TalkBot]({repo}) o usar [locale overrides]({overrides})."
+
+msgid "config_cmd_set_invalid_locale_footer"
+msgstr "Puedes usar /locales para ver los locales actualmente soportados."
+
+msgid "config_cmd_cancel_removed"
+msgstr "Está bien, ya no esperaré más una nueva configuración de servidor."
+
+msgid "config_cmd_cancel_not_waiting"
+msgstr "No estoy esperando una nueva configuración de servidor."
+
+msgid "config_mention_not_waiting"
+msgstr "¿Estás intentando actualizar la configuración del servidor? Prueba a usar **/config set** primero."
+
+
+msgid "locales_cmd_description"
+msgstr "Listar todos los locales soportados."
+
+msgid "locales_cmd_list"
+msgstr "{locales}"
+
+
+msgid "generate_audio_failed"
+msgstr "¡No se pudo generar el audio de tu mensaje! Revisa tu configuración de voz."
