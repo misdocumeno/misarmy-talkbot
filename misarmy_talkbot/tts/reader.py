@@ -2,6 +2,7 @@ import discord
 from .speaker import GuildSpeaker
 from ..utils import is_deafened
 from ..logger import logger
+from typing import cast
 
 
 class FollowedMember:
@@ -87,9 +88,13 @@ class GuildReader:
         return discord.Colour.dark_purple(), 'ignore_success'
 
     async def on_message(self, message: discord.Message):
-        if (message.author in self._following and not is_deafened(message.author) and
-                message.channel not in self._following[message.author].ignored_channels):
-            logger.debug(f'Reading {message.content!r} from {message.author} in {message.guild}')
+        member = cast(discord.Member, message.author)
+        if (
+            member in self._following
+            and not is_deafened(member)
+            and message.channel not in self._following[member].ignored_channels
+        ):
+            logger.debug(f'Reading {message.content!r} from {member} in {message.guild}')
             await self._speaker.on_message(message)
 
     async def on_voice_connect(self, member: discord.Member):

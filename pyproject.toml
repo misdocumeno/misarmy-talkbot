@@ -19,11 +19,12 @@ aiosqlite = "^0.20.0"
 ffmpy3 = "^0.2.4"
 regex = "^2024.9.11"
 colorlog = "^6.8.2"
-discord-py = {extras = ["voice"], version = "^2.5.2"}
+py-cord = {extras = ["voice"], version = "^2.6.1"}
+black = "^25.1.0"
 
 
 [tool.poetry.group.dev.dependencies]
-autopep8 = "^2.3.1"
+black = "^25.1.0"
 
 [build-system]
 requires = ["poetry-core"]

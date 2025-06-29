@@ -11,34 +11,34 @@ from ..locale.translations import translate, UnsupportedLocaleError
 waiting_for_config: dict[discord.Guild, set[discord.Member]] = {}
 
 
-async def config_command(interaction: discord.Interaction, action: Literal['get', 'set', 'cancel', 'default']):
+async def config_command(ctx: discord.ApplicationContext, action: Literal['get', 'set', 'cancel', 'default']):
     """Handles the config slash command."""
-    assert interaction.guild is not None and isinstance(interaction.user, discord.Member)
+    assert ctx.guild is not None and isinstance(ctx.user, discord.Member)
 
     if action == 'default':
-        await interaction.response.send_message(
-            file=discord.File(io.BytesIO(default_config.encode('utf-8')), filename=f'{interaction.guild_id}.json'),
+        await ctx.respond(
+            file=discord.File(io.BytesIO(default_config.encode('utf-8')), filename=f'{ctx.guild_id}.json'),
             ephemeral=True)
         return
 
     if action == 'set':
-        waiting_for_config.setdefault(interaction.guild, set()).add(interaction.user)
-        await interaction.response.send_message(embed=discord.Embed(
-            description=translate('config_cmd_set_response', interaction.guild),
-            color=discord.Colour.dark_purple()), ephemeral=True)
+        waiting_for_config.setdefault(ctx.guild, set()).add(ctx.user)
+        await ctx.respond(
+            embed=discord.Embed(description=translate('config_cmd_set_response', ctx.guild),
+                                color=discord.Colour.dark_purple()), ephemeral=True)
         return
 
     if action == 'cancel':
-        if interaction.user in waiting_for_config.get(interaction.guild, set()):
-            waiting_for_config[interaction.guild].remove(interaction.user)
-            await reply_interaction(interaction, discord.Colour.dark_purple(), 'config_cmd_cancel_removed')
+        if ctx.user in waiting_for_config.get(ctx.guild, set()):
+            waiting_for_config[ctx.guild].remove(ctx.user)
+            await reply_interaction(ctx, discord.Colour.dark_purple(), 'config_cmd_cancel_removed')
         else:
-            await reply_interaction(interaction, discord.Colour.red(), 'config_cmd_cancel_not_waiting')
+            await reply_interaction(ctx, discord.Colour.red(), 'config_cmd_cancel_not_waiting')
         return
 
-    guild_config = await get_config_json(interaction.guild) or default_config
-    await interaction.response.send_message(
-        file=discord.File(io.BytesIO(guild_config.encode('utf-8')), filename=f'{interaction.guild_id}.json'),
+    guild_config = await get_config_json(ctx.guild) or default_config
+    await ctx.respond(
+        file=discord.File(io.BytesIO(guild_config.encode('utf-8')), filename=f'{ctx.guild_id}.json'),
         ephemeral=True)
 
 

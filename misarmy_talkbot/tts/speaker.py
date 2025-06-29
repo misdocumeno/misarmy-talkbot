@@ -28,7 +28,8 @@ class GuildSpeaker:
                 voice_client.stop()
 
             if channel is not None and self._guild.voice_client is None:
-                await channel.connect(reconnect=True, self_deaf=True)
+                await channel.connect(reconnect=True)
+                await self._guild.change_voice_state(channel=channel, self_deaf=True)
             elif channel is None and self._guild.voice_client is not None:
                 await self._guild.voice_client.disconnect(force=True)
                 await self._queue.clear()
@@ -56,8 +57,11 @@ class GuildSpeaker:
         while True:
             try:
                 message = await self._queue.get(AudioState.READY, index=0)
-                if (message.buffer is not None and
-                        self._guild.me.voice is not None and self._guild.me.voice.channel is not None):
+                if (
+                    message.buffer is not None
+                    and self._guild.me.voice is not None
+                    and self._guild.me.voice.channel is not None
+                ):
                     logger.debug(f'Playing {message.content!r}')
                     await self._play(message)
             except Exception as e:
