@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from .logger import logger
 from .tts.reader import GuildReader
 from .locale.translations import translate, supported_locales
-from .utils import reply_interaction, reply_link_embed, voice_choices, preset_choices
+from .utils import reply_interaction, reply_link_embed, voice_choices, preset_choices, voices_list
 from .config.config import update_config, get_config_json, set_default_config, default_config
 from .config.command import config_command, on_config_mention
 from .database.database import create_tables
@@ -129,6 +129,8 @@ async def voice(ctx: discord.ApplicationContext, new_voice: str | None = None):
     voice = await get_voice(cast(discord.Member, ctx.user))
     if new_voice is None:
         await reply_interaction(ctx, color, 'voice_cmd_current_voice', voice=voice.voice)
+    elif new_voice not in await voices_list():
+        await reply_interaction(ctx, discord.Colour.red(), 'voice_cmd_invalid_voice', voice=new_voice)
     elif await update_voice(cast(discord.Member, ctx.user), voice=new_voice):
         await reply_interaction(
             ctx,

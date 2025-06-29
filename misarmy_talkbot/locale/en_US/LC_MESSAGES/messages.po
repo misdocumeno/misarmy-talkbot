@@ -76,6 +76,9 @@ msgstr "The new voice you want."
 msgid "voice_cmd_current_voice"
 msgstr "Your current voice is {voice}"
 
+msgid "voice_cmd_invalid_voice"
+msgstr "That voice does not exist!"
+
 msgid "voice_cmd_same_voice"
 msgstr "You already have that voice!"
 
