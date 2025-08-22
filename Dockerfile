@@ -1,6 +1,6 @@
 FROM python:3.12-slim-bookworm
 
-RUN apt-get update && apt-get install -y ffmpeg && apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y ffmpeg git && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m bot
 
@@ -18,7 +18,7 @@ RUN pip install poetry==1.8.3
 
 COPY pyproject.toml poetry.lock* ./
 
-RUN poetry install --no-interaction --no-root --no-dev
+RUN poetry install --no-interaction --no-root --only main
 
 COPY misarmy_talkbot/ misarmy_talkbot/
 

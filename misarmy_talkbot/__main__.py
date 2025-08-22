@@ -62,6 +62,7 @@ async def on_guild_remove(guild: discord.Guild):
 @discord.commands.guild_only()
 async def follow(ctx: discord.ApplicationContext):
     if ctx.guild is not None and ctx.guild in readers and isinstance(ctx.user, discord.Member):
+        await ctx.defer(ephemeral=True)
         await reply_interaction(ctx, *await readers[ctx.guild].follow(ctx.user))
 
 
@@ -69,6 +70,7 @@ async def follow(ctx: discord.ApplicationContext):
 @discord.commands.guild_only()
 async def unfollow(ctx: discord.ApplicationContext):
     if ctx.guild is not None and ctx.guild in readers and isinstance(ctx.user, discord.Member):
+        await ctx.defer(ephemeral=True)
         await reply_interaction(ctx, *await readers[ctx.guild].unfollow(ctx.user))
 
 
@@ -81,6 +83,7 @@ async def ignore(ctx: discord.ApplicationContext):
         and isinstance(ctx.user, discord.Member)
         and isinstance(ctx.channel, discord.abc.Messageable)
     ):
+        await ctx.defer(ephemeral=True)
         await reply_interaction(ctx, *readers[ctx.guild].ignore(ctx.user, ctx.channel))
 
 
@@ -88,6 +91,7 @@ async def ignore(ctx: discord.ApplicationContext):
 @discord.commands.guild_only()
 async def stop(ctx: discord.ApplicationContext):
     if ctx.guild is not None and ctx.guild in readers and isinstance(ctx.user, discord.Member):
+        await ctx.defer(ephemeral=True)
         await reply_interaction(ctx, *await readers[ctx.guild].speaker.stop(ctx.user))
 
 
@@ -96,6 +100,7 @@ async def stop(ctx: discord.ApplicationContext):
 @discord.commands.guild_only()
 async def stopall(ctx: discord.ApplicationContext):
     if ctx.guild is not None and ctx.guild in readers:
+        await ctx.defer(ephemeral=True)
         await reply_interaction(ctx, *await readers[ctx.guild].speaker.stop_all())
 
 
@@ -103,6 +108,7 @@ async def stopall(ctx: discord.ApplicationContext):
 @discord.commands.guild_only()
 async def skip(ctx: discord.ApplicationContext):
     if ctx.guild is not None and ctx.guild in readers and isinstance(ctx.user, discord.Member):
+        await ctx.defer(ephemeral=True)
         await reply_interaction(ctx, *await readers[ctx.guild].speaker.skip(ctx.user))
 
 
@@ -112,6 +118,7 @@ async def skip(ctx: discord.ApplicationContext):
 @discord.commands.guild_only()
 async def mute(ctx: discord.ApplicationContext, target: discord.Member):
     if ctx.guild is not None and ctx.guild in readers:
+        await ctx.defer(ephemeral=True)
         await reply_interaction(ctx, *await readers[ctx.guild].speaker.stop(target))
 
 
@@ -125,8 +132,10 @@ async def mute(ctx: discord.ApplicationContext, target: discord.Member):
 )
 @discord.commands.guild_only()
 async def voice(ctx: discord.ApplicationContext, new_voice: str | None = None):
+    await ctx.defer(ephemeral=True)
     color = discord.Colour.dark_purple()
     voice = await get_voice(cast(discord.Member, ctx.user))
+
     if new_voice is None:
         await reply_interaction(ctx, color, 'voice_cmd_current_voice', voice=voice.voice)
     elif new_voice not in await voices_list():
@@ -147,7 +156,9 @@ async def voice(ctx: discord.ApplicationContext, new_voice: str | None = None):
 @discord.option('new_pitch', description=translate('pitch_cmd_pitch_argument_description'), type=float, required=False)
 @discord.commands.guild_only()
 async def pitch(ctx: discord.ApplicationContext, new_pitch: float | None = None):
+    await ctx.defer(ephemeral=True)
     color = discord.Colour.dark_purple()
+
     if new_pitch is None:
         voice = await get_voice(cast(discord.Member, ctx.user))
         await reply_interaction(ctx, color, 'pitch_cmd_current_pitch', pitch=voice.pitch)
@@ -161,7 +172,9 @@ async def pitch(ctx: discord.ApplicationContext, new_pitch: float | None = None)
 @discord.option('new_speed', description=translate('speed_cmd_speed_argument_description'), type=float, required=False)
 @discord.commands.guild_only()
 async def speed(ctx: discord.ApplicationContext, new_speed: float | None = None):
+    await ctx.defer(ephemeral=True)
     color = discord.Colour.dark_purple()
+
     if new_speed is None:
         voice = await get_voice(cast(discord.Member, ctx.user))
         await reply_interaction(ctx, color, 'speed_cmd_current_speed', speed=voice.speed)
@@ -189,6 +202,7 @@ async def speed(ctx: discord.ApplicationContext, new_speed: float | None = None)
 async def preset(
     ctx: discord.ApplicationContext, action: Literal['list', 'save', 'load', 'delete'], preset_name: str | None = None
 ):
+    await ctx.defer(ephemeral=True)
     member = cast(discord.Member, ctx.user)
 
     if preset_name is None and action != 'list':
@@ -231,8 +245,12 @@ async def invite(ctx: discord.ApplicationContext):
 @discord.commands.guild_only()
 @discord.default_permissions(administrator=True)
 async def sync(ctx: discord.ApplicationContext):
+    await ctx.defer(ephemeral=True)
     await ctx.bot.sync_commands()
-    await ctx.bot.sync_commands(guild_ids=[ctx.guild.id])
+
+    if ctx.guild is not None:
+        await ctx.bot.sync_commands(guild_ids=[ctx.guild.id])
+
     await reply_interaction(ctx, discord.Colour.dark_purple(), 'sync_cmd_sync_done')
 
 
@@ -253,6 +271,7 @@ async def config(ctx: discord.ApplicationContext, action: Literal['get', 'set', 
 @discord.commands.guild_only()
 @discord.default_permissions(administrator=True)
 async def locales(ctx: discord.ApplicationContext):
+    await ctx.defer(ephemeral=True)
     locales = '- ' + '\n- '.join(supported_locales)
     await reply_interaction(ctx, discord.Colour.dark_purple(), 'locales_cmd_list', locales=locales)
 

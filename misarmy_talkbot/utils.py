@@ -9,11 +9,7 @@ from .args import args
 
 
 async def reply_interaction(
-    ctx: discord.ApplicationContext,
-    color: discord.Colour,
-    msgid: str,
-    footer_msgid='',
-    **kwargs
+    ctx: discord.ApplicationContext, color: discord.Colour, msgid: str, footer_msgid='', **kwargs
 ):
     """Reply to an interaction with an embed with a translated message, formatting it with the given kwargs."""
     embed = discord.Embed(color=color, title=translate(msgid, ctx.guild).format(**kwargs))
@@ -39,6 +35,7 @@ async def reply_link_embed(ctx: discord.ApplicationContext, client: discord.Clie
     if ctx.user is None or not isinstance(ctx.user, discord.Member):
         return
 
+    await ctx.defer(ephemeral=True)
     member = cast(discord.Member, ctx.user)
 
     avatar = member.avatar.url if member.avatar else None
@@ -51,7 +48,8 @@ async def reply_link_embed(ctx: discord.ApplicationContext, client: discord.Clie
     embed = discord.Embed(
         title=translate('invite_title', ctx.guild),
         description=translate('invite_description', ctx.guild),
-        color=discord.Colour.dark_purple())
+        color=discord.Colour.dark_purple(),
+    )
     embed.set_thumbnail(url=avatar)
 
     view = discord.ui.View()
@@ -73,7 +71,7 @@ async def reply_unsupported_locale(message: discord.Message):
 async def voices_list() -> list[str]:
     return [
         *[f'google/{code}-{country}' for code, country in gtts.lang.tts_langs().items()],
-        *[f'edge/{voice['ShortName']}' for voice in await edge_tts.list_voices()]
+        *[f'edge/{voice['ShortName']}' for voice in await edge_tts.list_voices()],
     ]
 
 
