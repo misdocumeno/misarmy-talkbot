@@ -1,11 +1,4 @@
 import os
-
-if os.getenv('ENABLE_DEBUGPY') == '1':
-    import debugpy
-
-    debugpy.listen(('0.0.0.0', 5678))
-    print('Started debugpy on port 5678')
-
 import sys
 import signal
 import discord
@@ -25,6 +18,14 @@ from .args import args
 
 
 load_dotenv(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.env')))
+
+
+if os.getenv('ENABLE_DEBUGPY') == '1':
+    import debugpy
+
+    debugpy.listen(('0.0.0.0', int(os.getenv('DEBUGPY_PORT', '5678'))))
+    logger.info(f'Started debugpy on port {os.getenv("DEBUGPY_PORT", "5678")}')
+
 
 intents = discord.Intents.default()
 intents.members = True
@@ -259,6 +260,18 @@ async def sync(ctx: discord.ApplicationContext):
         await ctx.bot.sync_commands(guild_ids=[ctx.guild.id])
 
     await reply_interaction(ctx, discord.Colour.dark_purple(), 'sync_cmd_sync_done')
+
+
+@bot.command(name='debug', description=translate('debug_cmd_description'), guild=discord.Object(id=args.dev_guild))
+@discord.commands.guild_only()
+@discord.default_permissions(administrator=True)
+async def debug(ctx: discord.ApplicationContext):
+    await ctx.defer(ephemeral=True)
+    try:
+        debugpy.listen(('0.0.0.0', int(os.getenv('DEBUGPY_PORT', '5678'))))
+        await reply_interaction(ctx, discord.Colour.dark_purple(), 'debug_cmd_debugger_started')
+    except RuntimeError:
+        await reply_interaction(ctx, discord.Colour.red(), 'debug_cmd_debugger_already_started')
 
 
 @bot.command(name='config', description=translate('config_cmd_description'))
