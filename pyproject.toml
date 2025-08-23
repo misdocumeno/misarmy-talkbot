@@ -23,6 +23,7 @@ py-cord = { git = "https://github.com/Pycord-Development/pycord.git", extras = [
     "voice",
 ], rev = "2b63af9" }
 black = "^25.1.0"
+debugpy = "^1.8.16"
 
 
 [tool.poetry.group.dev.dependencies]

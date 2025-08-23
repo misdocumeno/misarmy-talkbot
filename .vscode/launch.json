@@ -9,6 +9,21 @@
             "type": "debugpy",
             "request": "launch",
             "module": "misarmy_talkbot"
+        },
+        {
+            "name": "Python: Attach to Remote Bot",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "192.168.100.200",
+                "port": 5678
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}/misarmy_talkbot",
+                    "remoteRoot": "/home/bot/misarmy_talkbot"
+                }
+            ]
         }
     ]
 }

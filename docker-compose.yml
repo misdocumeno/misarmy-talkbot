@@ -8,6 +8,8 @@ services:
       - misarmy-talkbot-config:/home/bot/config
     env_file:
       - .env
+    ports:
+      - "5678:5678"
 
 volumes:
   misarmy-talkbot-config:
