@@ -326,6 +326,8 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
     if member == bot.user:
         # the bot was disconnected, reset everything
         if after.channel is None:
+            logger.debug(f'Bot disconnected from {member.guild}. Creating new GuildReader object.')
+            # TODO: we should stop the infinite loop in GuildSpeaker._speak first
             readers[member.guild] = GuildReader(member.guild)
         # the bot was moved to different channel, move it back
         if before.channel is not None:

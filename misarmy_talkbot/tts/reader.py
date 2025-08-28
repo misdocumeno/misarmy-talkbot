@@ -27,6 +27,7 @@ class GuildReader:
         self._speaker = GuildSpeaker(guild)
         self._master = None
         self._following = {}
+        logger.debug(f'Initializing reader for {guild}')
 
     @property
     def speaker(self):
@@ -61,6 +62,7 @@ class GuildReader:
         if member not in self._following:
             return discord.Colour.red(), 'not_following'
 
+        logger.debug(f'Unfollowing {member} in {self._guild} because of slash command')
         del self._following[member]
 
         if member != self._master:
@@ -102,6 +104,7 @@ class GuildReader:
 
     async def on_voice_disconnect(self, member: discord.Member):
         if member in self._following:
+            logger.debug(f'Unfollowing {member} in {self._guild} because member disconnected')
             await self.unfollow(member)
 
     async def on_voice_move(self, member: discord.Member):
@@ -109,6 +112,7 @@ class GuildReader:
             return
 
         if member != self._master or member.voice is None or member.voice.channel is None:
+            logger.debug(f'Unfollowing {member} in {self._guild} because member moved')
             await self.unfollow(member)
             return
 
