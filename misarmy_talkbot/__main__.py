@@ -6,6 +6,8 @@ from typing import Literal, Any, cast
 from pydantic_core import ValidationError
 from dotenv import load_dotenv
 from .logger import logger
+from .voice_log import format_discord_voice_state, format_guild_voice_snapshot
+from .reader_debug import log_reader_forensics, readers_keys_identity_raw, readers_registry_table
 from .tts.reader import GuildReader
 from .locale.translations import translate, supported_locales
 from .utils import reply_interaction, reply_link_embed, voice_choices, preset_choices, voices_list
@@ -33,6 +35,48 @@ intents.message_content = True
 bot = discord.Bot(command_prefix='!', intents=intents)
 
 readers: dict[discord.Guild, GuildReader] = {}
+
+
+def _guild_reader(guild: discord.Guild) -> GuildReader | None:
+    """Resolve reader with logging when the guild mapping is missing (e.g. during reconnect races)."""
+    r = readers.get(guild)
+    if r is None:
+        logger.error(f'readers lookup miss guild_id={guild.id} guild_keys={[g.id for g in readers]}')
+    return r
+
+
+def _probe_readers_guild_key_alias(guild: discord.Guild, scope: str) -> None:
+    """
+    Detect if message.guild / ctx.guild is a different Python object than the dict key
+    (same guild id, dict membership fails) or if two readers could appear for one guild id.
+    """
+    r_direct = readers.get(guild)
+    r_scan = None
+    k_scan = None
+    for k, v in readers.items():
+        if k.id == guild.id:
+            r_scan = v
+            k_scan = k
+            break
+    if r_direct is None and r_scan is not None:
+        logger.critical(
+            f'READER_KEY_MISS_GUILD_OBJ scope={scope} guild_id={guild.id} probe_guild_obj_id={id(guild)} '
+            f'scan_key_obj_id={id(k_scan)} dict_key_eq_probe_guild={k_scan == guild} '
+            f'reader_id={id(r_scan)} | {readers_registry_table(readers, scope)}'
+        )
+    elif r_direct is not None and r_scan is not None:
+        if id(r_direct) != id(r_scan):
+            logger.critical(
+                f'READER_ID_MISMATCH_SAME_GUILD_ID scope={scope} guild_id={guild.id} '
+                f'reader_via_get={id(r_direct)} reader_via_scan={id(r_scan)} | '
+                f'{readers_registry_table(readers, scope)}'
+            )
+        if k_scan is not None and id(k_scan) != id(guild):
+            logger.warning(
+                f'READER_GUILD_KEY_OBJ_NEQ scope={scope} guild_id={guild.id} '
+                f'probe_guild_obj_id={id(guild)} dict_key_obj_id={id(k_scan)} eq={guild == k_scan}'
+            )
+    logger.debug(f'PROBE_TAIL scope={scope} {readers_keys_identity_raw(readers)}')
 
 
 async def init_guild(guild: discord.Guild | None = None) -> GuildReader | None:
@@ -69,17 +113,57 @@ async def on_guild_remove(guild: discord.Guild):
 @bot.command(name='follow', description=translate('follow_cmd_description'))
 @discord.commands.guild_only()
 async def follow(ctx: discord.ApplicationContext):
-    if ctx.guild is not None and ctx.guild in readers and isinstance(ctx.user, discord.Member):
-        await ctx.defer(ephemeral=True)
-        await reply_interaction(ctx, *await readers[ctx.guild].follow(ctx.user))
+    if ctx.guild is None:
+        logger.warning('slash /follow skipped: guild is None (unexpected for guild_only)')
+        return
+    if ctx.guild not in readers:
+        logger.error(
+            f'slash /follow skipped: guild_id={ctx.guild.id} missing from readers keys={[g.id for g in readers]}'
+        )
+        _probe_readers_guild_key_alias(ctx.guild, 'slash_follow_miss')
+        return
+    if not isinstance(ctx.user, discord.Member):
+        logger.warning(f'slash /follow skipped: user is not Member type={type(ctx.user)!r}')
+        return
+    _probe_readers_guild_key_alias(ctx.guild, 'slash_follow_pre')
+    logger.info(readers_registry_table(readers, 'slash_follow_pre_table'))
+    await ctx.defer(ephemeral=True)
+    color, msgid = await readers[ctx.guild].follow(ctx.user)
+    logger.info(
+        f'slash /follow result guild_id={ctx.guild.id} user_id={ctx.user.id} outcome_msgid={msgid} '
+        f'ctx_user_obj_id={id(ctx.user)} ctx_guild_obj_id={id(ctx.guild)} '
+        f'reader_row={readers[ctx.guild].debug_registry_row()}'
+    )
+    logger.info(readers_registry_table(readers, 'slash_follow_post_table'))
+    await reply_interaction(ctx, color, msgid)
 
 
 @bot.command(name='unfollow', description=translate('unfollow_cmd_description'))
 @discord.commands.guild_only()
 async def unfollow(ctx: discord.ApplicationContext):
-    if ctx.guild is not None and ctx.guild in readers and isinstance(ctx.user, discord.Member):
-        await ctx.defer(ephemeral=True)
-        await reply_interaction(ctx, *await readers[ctx.guild].unfollow(ctx.user))
+    if ctx.guild is None:
+        logger.warning('slash /unfollow skipped: guild is None')
+        return
+    if ctx.guild not in readers:
+        logger.error(
+            f'slash /unfollow skipped: guild_id={ctx.guild.id} missing from readers keys={[g.id for g in readers]}'
+        )
+        _probe_readers_guild_key_alias(ctx.guild, 'slash_unfollow_miss')
+        return
+    if not isinstance(ctx.user, discord.Member):
+        logger.warning(f'slash /unfollow skipped: user is not Member type={type(ctx.user)!r}')
+        return
+    _probe_readers_guild_key_alias(ctx.guild, 'slash_unfollow_pre')
+    logger.info(readers_registry_table(readers, 'slash_unfollow_pre_table'))
+    await ctx.defer(ephemeral=True)
+    color, msgid = await readers[ctx.guild].unfollow(ctx.user)
+    logger.info(
+        f'slash /unfollow result guild_id={ctx.guild.id} user_id={ctx.user.id} '
+        f'ctx_user_obj_id={id(ctx.user)} ctx_guild_obj_id={id(ctx.guild)} outcome_msgid={msgid} '
+        f'reader_row={readers[ctx.guild].debug_registry_row()}'
+    )
+    logger.info(readers_registry_table(readers, 'slash_unfollow_post_table'))
+    await reply_interaction(ctx, color, msgid)
 
 
 @bot.command(name='ignore', description=translate('ignore_cmd_description'))
@@ -302,8 +386,19 @@ async def on_message(message: discord.Message):
         return
     if bot.user in message.mentions and await on_config_mention(message):
         return
-    if message.guild in readers:
-        await readers[message.guild].on_message(message)
+    if message.guild not in readers:
+        logger.warning(
+            f'on_message no reader for guild_id={message.guild.id} message_id={message.id} skipped'
+        )
+        _probe_readers_guild_key_alias(message.guild, 'on_message_no_reader_key')
+        return
+    _probe_readers_guild_key_alias(message.guild, 'on_message_route')
+    logger.debug(
+        f'on_message route guild_id={message.guild.id} guild_obj_id={id(message.guild)} message_id={message.id} '
+        f'author_id={message.author.id} reader_id={id(readers[message.guild])} '
+        f'reader_row={readers[message.guild].debug_registry_row()}'
+    )
+    await readers[message.guild].on_message(message)
 
 
 @bot.event
@@ -323,23 +418,111 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
     if before.channel == after.channel:
         return
 
+    bot_vc = member.guild.voice_client
+    before_s = format_discord_voice_state(before, 'before')
+    after_s = format_discord_voice_state(after, 'after')
+    guild_snap = format_guild_voice_snapshot(member.guild, 'during_event')
+
+    logger.debug(
+        f'on_voice_state_update member_id={member.id} bot={member.bot} bot_user_id={(bot.user.id if bot.user else None)} '
+        f'guild_id={member.guild.id} {before_s} | {after_s} '
+        f'guild_voice_protocol={bot_vc.__class__.__name__ if bot_vc else None}'
+    )
+    logger.debug(f'on_voice_state_update GUILD_SNAP {guild_snap}')
+
     if member == bot.user:
         # the bot was disconnected, reset everything
         if after.channel is None:
-            logger.debug(f'Bot disconnected from {member.guild}. Creating new GuildReader object.')
+            await log_reader_forensics(
+                logger, scope='PRE_BOT_VC_DROP_READER_REPLACE', readers=readers, guild_id=member.guild.id
+            )
+            logger.warning(f'PRE_REPLACE_SNAP_BOT_DISCONNECT {format_guild_voice_snapshot(member.guild, "snap")}')
+            old_r = readers.get(member.guild)
+            old_rid = id(old_r) if old_r else None
+            old_sid = id(old_r.speaker) if old_r else None
+            logger.warning(
+                f'Bot voice DISCONNECT guild_id={member.guild.id} reader_will_replace=True '
+                f'old_reader_id={old_rid} old_speaker_id={old_sid} '
+                f'bot_before={before_s} bot_after={after_s} '
+                f'| SEE TODO stale GuildSpeaker._speak keeps running on OLD speaker'
+            )
             # TODO: we should stop the infinite loop in GuildSpeaker._speak first
             readers[member.guild] = GuildReader(member.guild)
-        # the bot was moved to different channel, move it back
+            nr = readers[member.guild]
+            logger.info(
+                f'GuildReader replaced guild_id={member.guild.id} new_reader_id={id(nr)} '
+                f'new_speaker_id={id(nr.speaker)} POST_REPLACE_SNAP {format_guild_voice_snapshot(member.guild, "snap")}'
+            )
+            await log_reader_forensics(
+                logger, scope='POST_BOT_VC_DROP_READER_REPLACE', readers=readers, guild_id=member.guild.id
+            )
+        # the bot was moved to different channel, move it back (also runs after voice drop if before.channel set)
         if before.channel is not None:
+            logger.info(
+                f'Bot voice state left previous channel guild_id={member.guild.id} '
+                f'before_ch={before.channel.id} after_ch={(after.channel.id if after.channel else None)} '
+                f'calling go_to_master | {format_guild_voice_snapshot(member.guild, "snap")}'
+            )
             await readers[member.guild].go_to_master()
+        elif after.channel is not None:
+            logger.info(
+                f'Bot voice CONNECT (join without prior channel?) guild_id={member.guild.id} '
+                f'channel_id={after.channel.id} | {format_guild_voice_snapshot(member.guild, "snap")}'
+            )
         return
 
-    elif after.channel is None:
+    gr = _guild_reader(member.guild)
+    if gr is None:
+        return
+
+    if after.channel is None:
         await readers[member.guild].on_voice_disconnect(member)
     elif before.channel is None:
         await readers[member.guild].on_voice_connect(member)
     else:
         await readers[member.guild].on_voice_move(member)
+
+
+@bot.event
+async def on_connect():
+    shards = getattr(bot, 'shard_count', None)
+    rl = getattr(bot, 'is_ws_ratelimited', lambda: False)()
+    logger.info(f'socket on_connect shards={shards} gw_ratelimited={rl}')
+
+
+@bot.event
+async def on_disconnect():
+    rl = getattr(bot, 'is_ws_ratelimited', lambda: False)()
+    logger.warning(
+        f'socket on_disconnect (main WS closed); reconnect may follow gw_ratelimited={rl} '
+        f'last_latency_sec={bot.latency:.6f}'
+    )
+
+
+@bot.event
+async def on_resume():
+    rl = getattr(bot, 'is_ws_ratelimited', lambda: False)()
+    vc_guilds = sum(1 for g in bot.guilds if g.voice_client is not None)
+    logger.info(
+        f'session resumed (RESUME) gw_latency_sec={bot.latency:.6f} gw_ratelimited={rl} '
+        f'guilds_with_voice_protocol={vc_guilds}/{len(bot.guilds)}'
+    )
+    logger.info(readers_registry_table(readers, 'on_resume'))
+
+
+@bot.event
+async def on_application_command_error(ctx: discord.ApplicationContext, error: discord.DiscordException):
+    exc = getattr(error, 'original', error)
+    cid = getattr(ctx, 'interaction', None)
+    iid = cid.id if cid else None
+    cmd = getattr(ctx.command, 'name', None)
+    logger.error(
+        f'application_command_error cmd={cmd!r} type={error.__class__.__name__} '
+        f'guild_id={(ctx.guild.id if ctx.guild else None)} '
+        f'channel_id={(ctx.channel.id if getattr(ctx.channel, "id", None) else None)} '
+        f'user_id={(ctx.user.id if ctx.user else None)} interaction_id={iid}',
+        exc_info=exc if isinstance(exc, BaseException) else error,
+    )
 
 
 @bot.event
@@ -352,7 +535,17 @@ async def on_ready():
         assert reader is not None
         readers[guild] = reader
 
-    logger.info(f'\u001b[32mLogged in as {bot.user}')
+    logger.info(
+        f'Logged in as {bot.user} (id={bot.user.id if bot.user else None}) guilds={len(bot.guilds)} '
+        f'ws_latency_sec={bot.latency:.5f}'
+    )
+    for g in bot.guilds:
+        r = readers.get(g)
+        logger.debug(
+            f'on_ready reader guild_id={g.id} reader_id={(id(r) if r else None)} '
+            f'in_readers={(g in readers)}'
+        )
+    logger.info(readers_registry_table(readers, 'on_ready'))
 
 
 def signal_handler(_: int, __: Any):

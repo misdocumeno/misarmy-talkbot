@@ -15,7 +15,7 @@ async def generate_edge_tts(text: str, member: discord.Member) -> io.BytesIO:
             if chunk['type'] == 'audio':
                 buffer.write(chunk['data'])
     except edge_tts.exceptions.NoAudioReceived:
-        logger.warn(f'No audio received for text: "{text}"')
+        logger.warning(f'No audio received for text: "{text}"')
 
     buffer.seek(0)
     return buffer
