@@ -12,7 +12,7 @@ services:
       # Host ./logs -> container /data (rotating log file at /data/talkbot.log)
       - ./logs:/data
       # Shared transient audio (tmpfs); same path inside the Lavalink container
-      # so the bot can hand it file:// URIs without an HTTP server.
+      # so Lavalink can load TTS files by absolute path without an HTTP server.
       - audio-tmpfs:/tmp/talkbot-audio
     env_file:
       - .env

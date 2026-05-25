@@ -1,8 +1,8 @@
 """Transient TTS audio files on tmpfs, shared with the Lavalink container.
 
-Lavalink's local source loads tracks from ``file://`` URIs. The bot writes one MP3
-per ``AudioMessage`` to a tmpfs directory mounted at the same path inside both
-containers; the engine deletes the file once Lavalink reports the track ended.
+Lavalink's local source loads tracks from an absolute filesystem path (same path
+inside both containers). The bot writes one MP3 per ``AudioMessage`` to the
+shared tmpfs; the engine deletes the file once Lavalink reports the track ended.
 A best-effort TTL janitor cleans up files orphaned by crashes so the tmpfs cannot
 grow unbounded.
 """
@@ -95,6 +95,6 @@ class AudioStorage:
         if removed:
             logger.info('audio_storage_janitor_swept removed=%s', removed)
 
-    def file_uri(self, path: Path) -> str:
-        """Return the ``file://`` URI the Lavalink container resolves."""
-        return f'file://{path.as_posix()}'
+    def lavalink_identifier(self, path: Path) -> str:
+        """Return the load identifier Lavalink's local source expects."""
+        return path.as_posix()

@@ -59,7 +59,7 @@ Per-guild flow:
 1. Slash command or follow event hits `LavalinkSession.ensure_connected_to(channel_id)`.
 2. The bot calls `channel.connect(cls=wavelink.Player, self_deaf=True)` (or `move_to`).
 3. For each text message, `PlaybackEngine.enqueue(audio)` schedules `audio.process()` as a background task; TTS bytes are written to `${AUDIO_DIR}/<uuid>.mp3` (a tmpfs volume mounted in both containers).
-4. The speak loop waits for the head of the queue to reach `READY`, then loads the file via `wavelink.Playable.search('file:///tmp/talkbot-audio/<uuid>.mp3')` and calls `player.play(track)`.
+4. The speak loop waits for the head of the queue to reach `READY`, then loads the file via `wavelink.Pool.fetch_tracks('/tmp/talkbot-audio/<uuid>.mp3')` (plain absolute path; do not use `Playable.search` with `file://` or Lavalink will treat it as a YouTube Music query) and calls `player.play(track)`.
 5. The loop blocks on `_track_done` (an `asyncio.Event` set by `on_wavelink_track_end` / `on_wavelink_track_exception`); no polling, no FFmpeg in the bot process for playback.
 6. After track end, the bot deletes the MP3; the `AudioStorage` janitor sweeps anything orphaned by crashes.
 

@@ -12,8 +12,7 @@ lavalink:
   server:
     password: "${LAVALINK_PASSWORD:youshallnotpass}"
     sources:
-      # Local files are how the bot hands generated TTS audio to Lavalink. Both
-      # containers share the audio tmpfs volume so file:// URIs resolve here.
+      # Local files: bot passes absolute paths under the shared tmpfs mount.
       local: true
       youtube: false
       bandcamp: false

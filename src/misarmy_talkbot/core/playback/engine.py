@@ -26,6 +26,7 @@ import wavelink
 from misarmy_talkbot.core.follow.registry import FollowRegistry
 from misarmy_talkbot.core.playback.audio import AudioState
 from misarmy_talkbot.core.playback.queue import MessageQueue
+from misarmy_talkbot.infra.audio_storage import AudioStorage
 from misarmy_talkbot.observability.logger import logger
 
 if TYPE_CHECKING:
@@ -327,9 +328,13 @@ class PlaybackEngine:
             await self._drop_head(audio)
             return
 
+        # Lavalink local source wants a plain absolute path, not file:// and not
+        # Playable.search (which would prefix ytmsearch: because file:/// has no
+        # URL host in yarl).
+        storage = AudioStorage.instance()
         try:
-            tracks = await wavelink.Playable.search(
-                f'file://{audio.track_path}'
+            tracks = await wavelink.Pool.fetch_tracks(
+                storage.lavalink_identifier(audio.track_path)
             )
         except wavelink.LavalinkLoadException:
             logger.exception(

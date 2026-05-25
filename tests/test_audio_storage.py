@@ -55,10 +55,9 @@ async def test_janitor_removes_old_files_only() -> None:
             os.environ.pop('AUDIO_JANITOR_INTERVAL_SECONDS', None)
 
 
-def test_file_uri_is_absolute() -> None:
+def test_lavalink_identifier_is_absolute_posix_path() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         storage = AudioStorage(audio_dir=Path(tmp))
         path = Path(tmp) / 'foo.mp3'
-        uri = storage.file_uri(path)
-        assert uri.startswith('file:///')
-        assert uri.endswith('foo.mp3')
+        assert storage.lavalink_identifier(path) == path.as_posix()
+        assert storage.lavalink_identifier(path).startswith('/')

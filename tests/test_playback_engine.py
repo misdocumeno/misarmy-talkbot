@@ -60,7 +60,8 @@ async def test_play_one_loads_track_and_completes_on_track_end(
     fake_track = MagicMock(name='track')
     play_started = asyncio.Event()
 
-    async def fake_search(_query: str) -> list[object]:
+    async def fake_fetch(_query: str, *, node: object = None) -> list[object]:
+        _ = node
         return [fake_track]
 
     real_play = lavalink.player.play
@@ -75,8 +76,8 @@ async def test_play_one_loads_track_and_completes_on_track_end(
 
     import wavelink
 
-    original_search = wavelink.Playable.search
-    wavelink.Playable.search = fake_search  # type: ignore[assignment]
+    original_fetch = wavelink.Pool.fetch_tracks
+    wavelink.Pool.fetch_tracks = fake_fetch  # type: ignore[assignment]
     try:
         loop_task = asyncio.create_task(engine._speak_loop())
         await asyncio.wait_for(play_started.wait(), timeout=1.0)
@@ -90,7 +91,7 @@ async def test_play_one_loads_track_and_completes_on_track_end(
         except asyncio.CancelledError:
             pass
     finally:
-        wavelink.Playable.search = original_search  # type: ignore[assignment]
+        wavelink.Pool.fetch_tracks = original_fetch  # type: ignore[assignment]
 
     assert lavalink.player.play_calls == [fake_track]
     assert metrics._counters.get('messages_played_total', {}).get(7, 0) == 1
@@ -108,7 +109,8 @@ async def test_track_exception_clears_current_without_count(
     fake_track = MagicMock(name='track')
     play_started = asyncio.Event()
 
-    async def fake_search(_query: str) -> list[object]:
+    async def fake_fetch(_query: str, *, node: object = None) -> list[object]:
+        _ = node
         return [fake_track]
 
     real_play = lavalink.player.play
@@ -123,8 +125,8 @@ async def test_track_exception_clears_current_without_count(
 
     import wavelink
 
-    original_search = wavelink.Playable.search
-    wavelink.Playable.search = fake_search  # type: ignore[assignment]
+    original_fetch = wavelink.Pool.fetch_tracks
+    wavelink.Pool.fetch_tracks = fake_fetch  # type: ignore[assignment]
     try:
         loop_task = asyncio.create_task(engine._speak_loop())
         await asyncio.wait_for(play_started.wait(), timeout=1.0)
@@ -140,7 +142,7 @@ async def test_track_exception_clears_current_without_count(
         except asyncio.CancelledError:
             pass
     finally:
-        wavelink.Playable.search = original_search  # type: ignore[assignment]
+        wavelink.Pool.fetch_tracks = original_fetch  # type: ignore[assignment]
 
     assert metrics._counters.get('messages_played_total', {}).get(7, 0) == 0
     assert (
