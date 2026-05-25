@@ -28,16 +28,8 @@ class GuildFollowSet:
     )
     version: int = 0
 
-    def _bump_version(self, log_suffix: str) -> None:
+    def _bump_version(self, _log_suffix: str) -> None:
         self.version += 1
-        from misarmy_talkbot.observability.logger import logger
-
-        logger.debug(
-            'follow_set_mutated guild_id=%s version=%s %s',
-            self.guild_id,
-            self.version,
-            log_suffix,
-        )
 
 
 class FollowRegistry:

@@ -1,7 +1,8 @@
 """Timed confirmation before unfollowing users who only briefly left voice.
 
-Without a grace window, flaky client reconnects would churn follow state and voice
-sessions; this supervisor centralizes cancel/replace logic so voice handlers stay short.
+Without a grace window, flaky client reconnects would churn follow state and
+voice sessions; this supervisor centralizes cancel/replace logic so voice
+handlers stay short.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ if TYPE_CHECKING:
 
 
 class DisconnectSupervisor:
-    """One pending unfollow task per (guild, user) pair, superseded if state changes."""
+    """One pending unfollow task per (guild, user), superseded if state changes."""
 
     _instance: DisconnectSupervisor | None = None
 
@@ -50,8 +51,9 @@ class DisconnectSupervisor:
     ) -> None:
         """Sleep, re-check voice membership, then unfollow and notify hooks.
 
-        Re-validation exists because users often reconnect within seconds; we only want
-        to drop follow intent when they are still absent after the full grace interval.
+        Re-validation exists because users often reconnect within seconds; we
+        only drop follow intent when they are still absent after the full grace
+        interval.
         """
         secs = (
             grace_seconds
@@ -61,31 +63,13 @@ class DisconnectSupervisor:
         from misarmy_talkbot.observability.logger import logger
 
         async def runner() -> None:
-            from misarmy_talkbot.observability.trace import step
-
             try:
-                step(
-                    guild_id,
-                    'grace',
-                    'grace_sleep',
-                    'ENTER',
-                    user_id=user_id,
-                    grace_s=secs,
-                )
                 await asyncio.sleep(secs)
                 if not await should_unfollow():
                     logger.debug(
                         'grace_drop_abort_revalidate guild_id=%s user_id=%s',
                         guild_id,
                         user_id,
-                    )
-                    step(
-                        guild_id,
-                        'grace',
-                        'grace_sleep',
-                        'EXIT',
-                        user_id=user_id,
-                        result='abort_revalidate',
                     )
                     return
                 follow_registry.unfollow(guild_id, user_id)
@@ -113,14 +97,6 @@ class DisconnectSupervisor:
                     'grace_drop_confirmed guild_id=%s user_id=%s',
                     guild_id,
                     user_id,
-                )
-                step(
-                    guild_id,
-                    'grace',
-                    'grace_sleep',
-                    'EXIT',
-                    user_id=user_id,
-                    result='dropped',
                 )
             except asyncio.CancelledError:
                 raise

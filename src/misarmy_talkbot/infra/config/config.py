@@ -65,12 +65,8 @@ def validate_config(
 ) -> GuildConfig:
     validated = GuildConfig.model_validate(json5.loads(config))
     # use preferred locale, if supported
-    if (
-        guild is not None
-        and guild.preferred_locale is not None
-        and validated.locale == 'guild_preferred'
-    ):
-        locale = guild.preferred_locale.replace('-', '_')
+    if guild is not None and validated.locale == 'guild_preferred':
+        locale = guild.preferred_locale.value.replace('-', '_')
         if not translations.is_supported_locale(locale):
             logger.warning(
                 f"{guild}'s preferred locale {locale!r} is not supported. Using global locale."

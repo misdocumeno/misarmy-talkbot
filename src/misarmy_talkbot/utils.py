@@ -4,6 +4,8 @@ import discord
 import edge_tts
 import gtts
 import gtts.lang
+from discord import app_commands
+from discord.ext import commands
 
 from misarmy_talkbot.infra.database.preset import get_presets
 from misarmy_talkbot.infra.locale import translate
@@ -12,7 +14,7 @@ from .args import args
 
 
 async def reply_interaction(
-    ctx: discord.ApplicationContext,
+    interaction: discord.Interaction,
     color: discord.Colour,
     msgid: str,
     footer_msgid: str = '',
@@ -20,19 +22,19 @@ async def reply_interaction(
 ) -> None:
     """Reply with a translated embed title (and optional footer)."""
     embed = discord.Embed(
-        color=color, title=translate(msgid, ctx.guild).format(**kwargs)
+        color=color, title=translate(msgid, interaction.guild).format(**kwargs)
     )
     embed.set_footer(
         text=(
-            translate(footer_msgid, ctx.guild).format(**kwargs)
+            translate(footer_msgid, interaction.guild).format(**kwargs)
             if footer_msgid != ''
             else None
         )
     )
-    if ctx.response.is_done():
-        await ctx.followup.send(embed=embed, ephemeral=True)
+    if interaction.response.is_done():
+        await interaction.followup.send(embed=embed, ephemeral=True)
     else:
-        await ctx.respond(embed=embed, ephemeral=True)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 def get_emoji_name(guild: discord.Guild, emoji_id: int) -> str | None:
@@ -50,17 +52,21 @@ def get_emoji_name(guild: discord.Guild, emoji_id: int) -> str | None:
 
 
 async def reply_link_embed(
-    ctx: discord.ApplicationContext, client: discord.Bot
+    interaction: discord.Interaction, client: commands.Bot
 ) -> None:
-    user = ctx.user
+    user = interaction.user
     if not isinstance(user, discord.Member):
         return
 
-    await ctx.defer(ephemeral=True)
+    if not interaction.response.is_done():
+        await interaction.response.defer(ephemeral=True)
     member = user
 
     avatar = member.avatar.url if member.avatar else None
-    bot_invite = f'https://discord.com/api/oauth2/authorize?client_id={member.id}&permissions=0&scope=bot'
+    bot_invite = (
+        f'https://discord.com/api/oauth2/authorize?'
+        f'client_id={member.id}&permissions=0&scope=bot'
+    )
 
     server_invite = client.get_guild(args.invite_guild)
     assert server_invite is not None
@@ -69,8 +75,8 @@ async def reply_link_embed(
     ).create_invite(max_age=300)
 
     embed = discord.Embed(
-        title=translate('invite_title', ctx.guild),
-        description=translate('invite_description', ctx.guild),
+        title=translate('invite_title', interaction.guild),
+        description=translate('invite_description', interaction.guild),
         color=discord.Colour.dark_purple(),
     )
     embed.set_thumbnail(url=avatar)
@@ -78,16 +84,18 @@ async def reply_link_embed(
     view = discord.ui.View()
     view.add_item(
         discord.ui.Button(
-            label=translate('bot_invite_button', ctx.guild), url=bot_invite
+            label=translate('bot_invite_button', interaction.guild),
+            url=bot_invite,
         )
     )
     view.add_item(
         discord.ui.Button(
-            label=translate('server_invite_button', ctx.guild), url=invite.url
+            label=translate('server_invite_button', interaction.guild),
+            url=invite.url,
         )
     )
 
-    await ctx.respond(embed=embed, view=view)
+    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
 async def reply_unsupported_locale(message: discord.Message) -> None:
@@ -116,20 +124,24 @@ async def voices_list() -> list[str]:
     ]
 
 
-async def voice_choices(ctx: discord.AutocompleteContext) -> list[str]:
+async def voice_autocomplete(
+    _interaction: discord.Interaction, current: str
+) -> list[app_commands.Choice[str]]:
     return [
-        voice
+        app_commands.Choice(name=voice, value=voice)
         for voice in await voices_list()
-        if ctx.value.lower() in voice.lower()
+        if current.lower() in voice.lower()
     ][:25]
 
 
-async def preset_choices(ctx: discord.AutocompleteContext) -> list[str]:
-    presets = await get_presets(cast('discord.Member', ctx.interaction.user))
+async def preset_autocomplete(
+    interaction: discord.Interaction, current: str
+) -> list[app_commands.Choice[str]]:
+    presets = await get_presets(cast('discord.Member', interaction.user))
     return [
-        preset.name
+        app_commands.Choice(name=preset.name, value=preset.name)
         for preset in presets
-        if ctx.value.lower() in preset.name.lower()
+        if current.lower() in preset.name.lower()
     ][:25]
 
 

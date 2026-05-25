@@ -2,8 +2,9 @@ import asyncio
 import io
 from concurrent.futures import ProcessPoolExecutor
 
-import ffmpy3
 import gtts
+
+from misarmy_talkbot.observability.logger import logger
 
 executor = ProcessPoolExecutor()
 
@@ -40,24 +41,39 @@ def _get_audio(text: str, voice: str) -> io.BytesIO:
 async def apply_effects(
     buffer: io.BytesIO, aresample: int, asetrate: float, atempo: float
 ) -> io.BytesIO:
-    ff = ffmpy3.FFmpeg(
-        inputs={'pipe:0': ['-f', 'mp3']},
-        outputs={
-            'pipe:1': [
-                '-f',
-                'mp3',
-                '-af',
-                f'{asetrate=},{aresample=},{atempo=}',
-            ]
-        },
-    )
-    output = io.BytesIO()
-    process = await ff.run_async(
-        input_data=buffer.getvalue(),
+    """Apply pitch/speed effects in a single ffmpeg subprocess pass.
+
+    Effects are baked into the MP3 here rather than via Lavalink filters because
+    each user message can have different settings; per-author filter switching
+    on the player would race playback start.
+    """
+    args = [
+        'ffmpeg',
+        '-loglevel',
+        'error',
+        '-f',
+        'mp3',
+        '-i',
+        'pipe:0',
+        '-f',
+        'mp3',
+        '-af',
+        f'asetrate={asetrate},aresample={aresample},atempo={atempo}',
+        'pipe:1',
+    ]
+    process = await asyncio.create_subprocess_exec(
+        *args,
+        stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, _ = await process.communicate()
-    output.write(stdout)
+    stdout, stderr = await process.communicate(input=buffer.getvalue())
+    if process.returncode != 0:
+        logger.warning(
+            'gtts_ffmpeg_failed rc=%s stderr=%s',
+            process.returncode,
+            stderr.decode('utf-8', errors='replace')[:200],
+        )
+    output = io.BytesIO(stdout)
     output.seek(0)
     return output

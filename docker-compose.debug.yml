@@ -3,7 +3,7 @@
 #   docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build
 #
 # debugpy opens a non-blocking attach port after login (never waits for a debugger).
-# Attach with F5 → "Docker: Attach to Talkbot" whenever you want; the bot keeps running.
+# Attach with F5 -> "Docker: Attach to Talkbot" whenever you want; the bot keeps running.
 
 services:
   misarmy_talkbot:
@@ -12,7 +12,6 @@ services:
     environment:
       LOG_LEVEL: DEBUG
       LOG_FILE: /data/talkbot.log
-      FORENSICS_ENABLED: "true"
       ENABLE_DEBUGPY: "1"
       DEBUGPY_PORT: "5678"
     ports:

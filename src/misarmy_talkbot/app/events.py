@@ -1,16 +1,15 @@
-"""Discord gateway event wiring for the talkbot.
+"""Discord and Lavalink event wiring for the talkbot.
 
-Discord.py scatters reactions across many hooks; this module keeps guild lifecycle,
-messages, and voice updates in one place so follow rules, session lookup, and first-boot
-work (database, config, metrics) stay out of slash commands and domain modules. That
-matters when the gateway reconnects: we need a single place to clear transients and
-nudge voice recovery without duplicating guild identifiers through the codebase.
+Discord gateway events drive follow/grace/session lookup; wavelink events drive
+playback queue advance. Voice connection health is owned by Lavalink/wavelink:
+nothing in here reconnects, polls voice WS state, or watches close codes.
 """
 
 from __future__ import annotations
 
 import asyncio
 import os
+from typing import TYPE_CHECKING
 
 import discord
 
@@ -19,6 +18,7 @@ from misarmy_talkbot.app.voice_sync import reconcile_master_channel
 from misarmy_talkbot.core.follow.grace import DisconnectSupervisor
 from misarmy_talkbot.core.follow.registry import FollowRegistry
 from misarmy_talkbot.core.session.registry import GuildSessionRegistry
+from misarmy_talkbot.infra.audio_storage import AudioStorage
 from misarmy_talkbot.infra.config.command import on_config_mention
 from misarmy_talkbot.infra.config.config import (
     default_config,
@@ -30,37 +30,36 @@ from misarmy_talkbot.infra.database.database import create_tables
 from misarmy_talkbot.observability.debugpy_boot import start_debugpy_if_enabled
 from misarmy_talkbot.observability.logger import logger
 from misarmy_talkbot.observability.metrics import MetricsRegistry
-from misarmy_talkbot.observability.trace import step
 from misarmy_talkbot.utils import is_deafened
+
+if TYPE_CHECKING:
+    import wavelink
+    from discord.ext import commands
+
+    from misarmy_talkbot.core.session.session import GuildSession
 
 _first_ready_done = False
 _metrics_snapshot_stop: asyncio.Event | None = None
+_audio_janitor_stop: asyncio.Event | None = None
 
 
 def metrics_snapshot_stop_event() -> asyncio.Event:
-    """Return the event shared with SIGTERM that stops the metrics snapshot loop.
-
-    Created lazily so importing this module never starts background tasks. The same
-    object must be used from ``on_ready`` and shutdown: otherwise the loop keeps
-    running after ``dispose_all`` or stops early while sessions are still alive.
-    """
+    """Event shared with SIGTERM that stops the metrics snapshot loop."""
     global _metrics_snapshot_stop
     if _metrics_snapshot_stop is None:
         _metrics_snapshot_stop = asyncio.Event()
     return _metrics_snapshot_stop
 
 
-async def _sync_slash_commands(bot: discord.Bot) -> None:
-    """Register slash commands with Discord after login (not on every reconnect)."""
-    logger.info('slash_sync ENTER')
-    try:
-        await bot.sync_commands()
-        logger.info('slash_sync EXIT')
-    except Exception:
-        logger.exception('slash_sync_failed')
+def audio_janitor_stop_event() -> asyncio.Event:
+    """Event shared with SIGTERM that stops the audio storage janitor loop."""
+    global _audio_janitor_stop
+    if _audio_janitor_stop is None:
+        _audio_janitor_stop = asyncio.Event()
+    return _audio_janitor_stop
 
 
-async def _first_boot(bot: discord.Bot) -> None:
+async def _first_boot(bot: commands.Bot) -> None:
     """DB + per-guild config after login; must not block the gateway READY handler."""
     logger.info('first_boot ENTER guild_count=%s', len(bot.guilds))
     try:
@@ -75,6 +74,10 @@ async def _first_boot(bot: discord.Bot) -> None:
             ),
             name='metrics_snapshot_loop',
         )
+        asyncio.create_task(
+            AudioStorage.instance().janitor_loop(audio_janitor_stop_event()),
+            name='audio_janitor',
+        )
         logger.info('first_boot EXIT guild_count=%s', len(bot.guilds))
     except Exception:
         logger.exception('first_boot_failed guild_count=%s', len(bot.guilds))
@@ -83,8 +86,8 @@ async def _first_boot(bot: discord.Bot) -> None:
 async def _load_guild_config(guild: discord.Guild | None) -> None:
     """Hydrate in-memory config from storage, falling back if the row is invalid.
 
-    Operators sometimes hand-edit JSON; a bad guild row must not brick startup or
-    guild join, so we reset to defaults and log instead of leaving the guild without a bot.
+    Operators sometimes hand-edit JSON; a bad guild row must not brick startup
+    or guild join, so we reset to defaults and log instead.
     """
     from pydantic_core import ValidationError
 
@@ -102,12 +105,11 @@ async def _load_guild_config(guild: discord.Guild | None) -> None:
         logger.error('Failed to load %s, using default config instead.', text)
 
 
-def register_events(bot: discord.Bot) -> None:
+def register_events(bot: commands.Bot) -> None:
     """Register all ``bot`` event handlers used by the talkbot.
 
     Voice and follow reactions live here rather than next to slash commands so
-    gateway-driven flows (resume, disconnect, member voice moves) stay one linear
-    story that matches how incidents are debugged.
+    gateway-driven flows stay one linear story.
     """
     metrics = MetricsRegistry.instance()
     sessions = GuildSessionRegistry.instance()
@@ -163,43 +165,13 @@ def register_events(bot: discord.Bot) -> None:
             return
 
         guild_id = member.guild.id
-        step(
-            guild_id,
-            'events',
-            'voice_state_update',
-            'POINT',
-            member_id=member.id,
-            is_bot=member.id == bot.user.id if bot.user else False,
-            before_channel=before.channel.id if before.channel else None,
-            after_channel=after.channel.id if after.channel else None,
-        )
         follow_registry = FollowRegistry.instance()
         disconnect_supervisor = DisconnectSupervisor.instance()
 
+        # The bot's own voice transitions are handled by Lavalink/wavelink; we
+        # only care about followed users here. (Lavalink resyncs the player
+        # when Discord moves the bot, we do not need to react.)
         if member == bot.user:
-            if after.channel is None:
-                guild_session = sessions.get(guild_id)
-                if guild_session is not None:
-                    teardown = guild_session.pilot.last_teardown_context()
-                    teardown_reason = teardown.get('reason')
-                    teardown_age_s = teardown.get('age_s')
-                    likely_our_teardown = (
-                        isinstance(teardown_age_s, int | float)
-                        and teardown_age_s < 5.0
-                        and teardown_reason is not None
-                    )
-                    logger.warning(
-                        'voice_bot_left_channel guild_id=%s before_channel=%s '
-                        'likely_our_teardown=%s last_teardown_reason=%s teardown_age_s=%s',
-                        guild_id,
-                        before.channel.id if before.channel else None,
-                        likely_our_teardown,
-                        teardown_reason,
-                        teardown_age_s,
-                    )
-                    guild_session.pilot.schedule_recover()
-            elif before.channel is not None:
-                await reconcile_master_channel(bot, guild_id)
             return
 
         if not follow_registry.is_followed(guild_id, member.id):
@@ -243,13 +215,17 @@ def register_events(bot: discord.Bot) -> None:
                 await sessions.dispose(guild_id)
             return
 
+        # Master moved channels - resync the player and clear in-flight queue
+        # because the playback target just changed.
         follow_registry.remove_non_masters(guild_id)
         await disconnect_supervisor.cancel_all_for_guild(guild_id)
         guild_session = sessions.get(guild_id)
         if guild_session is None:
             return
         await guild_session.engine.clear()
-        error = await guild_session.pilot.move(after.channel.id)
+        error = await guild_session.lavalink.ensure_connected_to(
+            after.channel.id
+        )
         if isinstance(error, PermissionError):
             follow_registry.unfollow(guild_id, member.id)
             await reconcile_master_channel(bot, guild_id)
@@ -264,25 +240,10 @@ def register_events(bot: discord.Bot) -> None:
             asyncio.create_task(_first_boot(bot), name='first_boot')
             asyncio.create_task(_sync_slash_commands(bot), name='slash_sync')
         metrics.inc_process('on_ready_count')
-        for guild_session in sessions.iter_alive():
-            guild_session.pilot.set_gateway_transient(False)
 
     @bot.event
-    async def on_connect() -> None:
-        logger.info('gateway_connect')
-
-    @bot.event
-    async def on_resume() -> None:
+    async def on_resumed() -> None:
         metrics.inc_process('on_resume_count')
-        step(
-            None,
-            'events',
-            'gateway_resume',
-            'POINT',
-            guild_sessions=len(list(sessions.iter_alive())),
-        )
-        for guild_session in sessions.iter_alive():
-            guild_session.pilot.set_gateway_transient(False)
 
     @bot.event
     async def on_disconnect() -> None:
@@ -299,15 +260,105 @@ def register_events(bot: discord.Bot) -> None:
         )
         if not bot.is_ready():
             logger.warning(
-                'Never reached READY — slash commands will not run. '
-                'Check VPN or tunnel software (e.g. Cloudflare WARP on Windows with WSL mirrored networking).'
+                'Never reached READY - slash commands will not run. '
+                'Check VPN or tunnel software (e.g. Cloudflare WARP on '
+                'Windows with WSL mirrored networking).'
             )
-        step(
-            None,
-            'events',
-            'gateway_disconnect',
-            'POINT',
-            guild_sessions=len(list(sessions.iter_alive())),
+
+    # ---- wavelink events: the only signals we use to advance the queue ----
+
+    @bot.event
+    async def on_wavelink_node_ready(
+        payload: wavelink.NodeReadyEventPayload,
+    ) -> None:
+        logger.info(
+            'lavalink_node_ready node=%s session_id=%s resumed=%s',
+            payload.node.identifier,
+            payload.session_id,
+            payload.resumed,
         )
-        for guild_session in sessions.iter_alive():
-            guild_session.pilot.set_gateway_transient(True)
+
+    @bot.event
+    async def on_wavelink_node_closed(node: wavelink.Node) -> None:
+        # Wavelink reconnects automatically; we just log.
+        logger.warning(
+            'lavalink_node_closed node=%s status=%s',
+            node.identifier,
+            node.status,
+        )
+
+    @bot.event
+    async def on_wavelink_track_start(
+        payload: wavelink.TrackStartEventPayload,
+    ) -> None:
+        guild_id = _payload_guild_id(payload)
+        if guild_id is not None:
+            metrics.inc('lavalink_track_start_total', guild_id)
+
+    @bot.event
+    async def on_wavelink_track_end(
+        payload: wavelink.TrackEndEventPayload,
+    ) -> None:
+        guild_session = _session_for_payload(payload)
+        if guild_session is not None:
+            guild_session.engine.on_track_end(payload)
+
+    @bot.event
+    async def on_wavelink_track_exception(
+        payload: wavelink.TrackExceptionEventPayload,
+    ) -> None:
+        guild_session = _session_for_payload(payload)
+        if guild_session is not None:
+            guild_session.engine.on_track_exception(payload)
+
+    @bot.event
+    async def on_wavelink_track_stuck(
+        payload: wavelink.TrackStuckEventPayload,
+    ) -> None:
+        guild_session = _session_for_payload(payload)
+        if guild_session is not None:
+            guild_session.engine.on_track_stuck(payload)
+
+    @bot.event
+    async def on_wavelink_websocket_closed(
+        payload: wavelink.WebsocketClosedEventPayload,
+    ) -> None:
+        guild_id = _payload_guild_id(payload)
+        logger.warning(
+            'lavalink_ws_closed guild_id=%s code=%s reason=%s by_remote=%s',
+            guild_id,
+            payload.code,
+            payload.reason,
+            payload.by_remote,
+        )
+
+
+async def _sync_slash_commands(bot: commands.Bot) -> None:
+    """Register slash commands with Discord after login (not on every reconnect)."""
+    logger.info('slash_sync ENTER')
+    try:
+        from misarmy_talkbot.args import args
+
+        dev_guild = discord.Object(id=args.dev_guild)
+        await bot.tree.sync(guild=dev_guild)
+        await bot.tree.sync()
+        logger.info('slash_sync EXIT')
+    except Exception:
+        logger.exception('slash_sync_failed')
+
+
+def _payload_guild_id(payload: object) -> int | None:
+    player = getattr(payload, 'player', None)
+    if player is None:
+        return None
+    guild = getattr(player, 'guild', None)
+    if guild is None:
+        return None
+    return guild.id
+
+
+def _session_for_payload(payload: object) -> GuildSession | None:
+    guild_id = _payload_guild_id(payload)
+    if guild_id is None:
+        return None
+    return GuildSessionRegistry.instance().get(guild_id)

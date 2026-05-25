@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from misarmy_talkbot.infra.locale.context import LocaleContext
 from misarmy_talkbot.infra.locale.translations import (
     UnsupportedLocaleError,
@@ -6,6 +8,11 @@ from misarmy_talkbot.infra.locale.translations import (
     supported_locales,
     validate_locale,
 )
+
+if TYPE_CHECKING:
+    # Importing eagerly creates a config <-> locale cycle; static checkers see
+    # the symbol while runtime resolves it via ``__getattr__`` below.
+    from misarmy_talkbot.infra.locale.i18n import translate as translate
 
 __all__ = [
     'LocaleContext',

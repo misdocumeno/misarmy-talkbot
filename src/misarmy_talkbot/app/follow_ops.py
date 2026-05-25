@@ -7,9 +7,7 @@ registry promotion lives here so ``commands.py`` only deals with interaction flo
 
 from __future__ import annotations
 
-import asyncio
-import os
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import discord
 
@@ -18,33 +16,19 @@ from misarmy_talkbot.core.follow.registry import FollowRegistry
 from misarmy_talkbot.core.playback.audio import AudioMessage
 from misarmy_talkbot.core.session.registry import GuildSessionRegistry
 from misarmy_talkbot.observability.logger import logger
-from misarmy_talkbot.observability.trace import step
 
-
-async def _wait_voice_ready(
-    pilot: object, *, guild_id: int, label: str
-) -> bool:
-    timeout = float(os.getenv('FOLLOW_HEALTHY_WAIT_SECONDS', '20'))
-    try:
-        await asyncio.wait_for(pilot.wait_until_healthy(), timeout=timeout)  # type: ignore[attr-defined]
-        return True
-    except TimeoutError:
-        logger.warning(
-            'follow_voice_wait_timeout guild_id=%s label=%s timeout_s=%s',
-            guild_id,
-            label,
-            timeout,
-        )
-        return False
+if TYPE_CHECKING:
+    from discord.ext import commands
 
 
 async def follow_user(
-    _bot: discord.Bot, guild: discord.Guild, member: discord.Member
+    _bot: commands.Bot, guild: discord.Guild, member: discord.Member
 ) -> tuple[discord.Colour, str]:
-    """Record follow intent and connect voice, or reject if voice state does not allow it.
+    """Record follow intent and connect Lavalink to the member's voice channel.
 
-    We connect only after registry writes so a failed voice join can roll back follow
-    state; otherwise the guild would think it is following someone the bot never joined.
+    Voice connect happens only after registry writes so a failed join can roll
+    follow state back; otherwise the guild would think it is following someone
+    the bot never joined.
     """
     guild_id = guild.id
     user_id = member.id
@@ -66,13 +50,7 @@ async def follow_user(
             return discord.Colour.red(), 'already_following'
         follow_registry.set_master(guild_id, user_id)
         guild_session = await sessions.get_or_create(guild_id)
-        if not await _wait_voice_ready(
-            guild_session.pilot, guild_id=guild_id, label='new_follow'
-        ):
-            await sessions.dispose(guild_id)
-            follow_registry.unfollow(guild_id, user_id)
-            return discord.Colour.red(), 'not_in_same_voice_channel'
-        error = await guild_session.pilot.ensure_connected_to(
+        error = await guild_session.lavalink.ensure_connected_to(
             target_channel_id
         )
         if error is not None:
@@ -81,19 +59,20 @@ async def follow_user(
             return discord.Colour.red(), 'not_in_same_voice_channel'
         return discord.Colour.dark_purple(), 'follow_success'
 
-    intended_channel_id = guild_session.pilot.intended_channel_id
+    current_channel = (
+        guild_session.lavalink.player.channel
+        if guild_session.lavalink.player is not None
+        else None
+    )
+    current_channel_id = current_channel.id if current_channel else None
     if (
-        intended_channel_id is not None
-        and target_channel_id != intended_channel_id
+        current_channel_id is not None
+        and target_channel_id != current_channel_id
         and master_user_id != user_id
     ):
         return discord.Colour.red(), 'not_in_same_voice_channel'
 
-    if not await _wait_voice_ready(
-        guild_session.pilot, guild_id=guild_id, label='join_follow'
-    ):
-        return discord.Colour.red(), 'not_in_same_voice_channel'
-    error = await guild_session.pilot.ensure_connected_to(target_channel_id)
+    error = await guild_session.lavalink.ensure_connected_to(target_channel_id)
     if error is not None:
         return discord.Colour.red(), 'not_in_same_voice_channel'
 
@@ -103,9 +82,9 @@ async def follow_user(
 
 
 async def unfollow_user(
-    bot: discord.Bot, guild: discord.Guild, member: discord.Member
+    bot: commands.Bot, guild: discord.Guild, member: discord.Member
 ) -> tuple[discord.Colour, str]:
-    """Remove follow intent and either drop the guild session or re-sync the remaining master."""
+    """Remove follow intent; dispose the guild session or re-sync remaining master."""
     guild_id = guild.id
     user_id = member.id
     follow_registry = FollowRegistry.instance()
@@ -145,9 +124,9 @@ def ignore_toggle(
 
 
 async def message_for_followed(
-    _bot: discord.Bot, message: discord.Message
+    _bot: commands.Bot, message: discord.Message
 ) -> None:
-    """Enqueue a followed user's message for TTS if the guild still has an active session."""
+    """Enqueue a followed user's message for TTS if the guild has an active session."""
     if message.guild is None:
         return
     guild_id = message.guild.id
@@ -166,20 +145,4 @@ async def message_for_followed(
         )
         return
 
-    step(
-        guild_id,
-        'follow',
-        'message_enqueue',
-        'ENTER',
-        user_id=user_id,
-        content=message.content[:80],
-    )
     await guild_session.engine.enqueue(AudioMessage(message))
-    step(
-        guild_id,
-        'follow',
-        'message_enqueue',
-        'EXIT',
-        user_id=user_id,
-        content=message.content[:80],
-    )

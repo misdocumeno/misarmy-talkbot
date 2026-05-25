@@ -1,10 +1,10 @@
-import asyncio
-import io
+"""One Discord message represented as a TTS audio file on tmpfs."""
+
+from __future__ import annotations
+
 import time
 from enum import Enum, auto
-from typing import cast
-
-import discord
+from typing import TYPE_CHECKING, cast
 
 from misarmy_talkbot.core.playback.tts.edits import apply_edits
 from misarmy_talkbot.core.playback.tts.voice_settings import (
@@ -16,9 +16,14 @@ from misarmy_talkbot.core.playback.tts.voices.google import (
     NoTokensError,
     generate_google_tts,
 )
+from misarmy_talkbot.infra.audio_storage import AudioStorage
 from misarmy_talkbot.infra.database.voice import get_voice
 from misarmy_talkbot.observability.logger import logger
-from misarmy_talkbot.observability.trace import step
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import discord
 
 
 class AudioState(Enum):
@@ -29,68 +34,59 @@ class AudioState(Enum):
 
 
 class AudioMessage:
+    """Lifecycle for one chat message: text edits -> TTS bytes -> tmpfs file.
+
+    The file path is what the engine hands to Lavalink. The MP3 stays on tmpfs
+    until the engine deletes it after playback (or the storage janitor sweeps
+    orphans).
+    """
+
     content: str
     original: discord.Message
     timestamp: float
     state: AudioState
-    buffer: io.BytesIO | None
-    _condition: asyncio.Condition
+    track_path: Path | None
+    audio_bytes: int
 
-    def __init__(self, message: discord.Message) -> None:
+    def __init__(
+        self,
+        message: discord.Message,
+        *,
+        storage: AudioStorage | None = None,
+    ) -> None:
         self.state = AudioState.PENDING
         self.original = message
         self.timestamp = time.time()
         self.content = apply_edits(message)
-        self.buffer = None
-        self.play_attempts = 0
-        self._condition = asyncio.Condition()
-        self._state_change_callback = None
+        self.track_path = None
+        self.audio_bytes = 0
+        self._storage = storage or AudioStorage.instance()
 
     async def process(self) -> None:
+        """Generate TTS audio and write it to tmpfs; sets ``state`` accordingly."""
         author = cast('discord.Member', self.original.author)
-        guild_id = self.original.guild.id if self.original.guild else None
-        step(guild_id, 'audio', 'process', 'ENTER', content=self.content)
         self.state = AudioState.PROCESSING
-        await self._on_state_change()
 
         voice_settings = await get_voice(author)
-        logger.debug(f'Processing {self.content!r} with {voice_settings}')
+        logger.debug('tts_processing %r %s', self.content, voice_settings)
 
         if self.content == '':
             self.state = AudioState.READY
-            await self._on_state_change()
-            step(
-                guild_id,
-                'audio',
-                'process',
-                'EXIT',
-                content=self.content,
-                state='READY',
-                reason='empty',
-            )
             return
 
         try:
-            step(
-                guild_id,
-                'audio',
-                'tts_generate',
-                'ENTER',
-                content=self.content,
-                voice=voice_settings.voice,
-            )
             provider = voice_settings.voice.split('/')[0]
             match provider:
                 case 'edge':
                     edge_voice, rate, pitch = edge_tts_params(voice_settings)
-                    self.buffer = await generate_edge_tts(
+                    buffer = await generate_edge_tts(
                         self.content, voice=edge_voice, rate=rate, pitch=pitch
                     )
                 case 'google':
                     g_voice, aresample, asetrate, atempo = google_tts_params(
                         voice_settings
                     )
-                    self.buffer = await generate_google_tts(
+                    buffer = await generate_google_tts(
                         self.content,
                         voice=g_voice,
                         aresample=aresample,
@@ -99,93 +95,70 @@ class AudioMessage:
                     )
                 case _:
                     raise ValueError(f'unsupported TTS provider: {provider!r}')
-            step(
-                guild_id,
-                'audio',
-                'tts_generate',
-                'EXIT',
-                content=self.content,
-                bytes=self.buffer.getbuffer().nbytes if self.buffer else 0,
-            )
         except NoTokensError:
             logger.warning(
-                'No TTS tokens for %r with %s', self.content, voice_settings
+                'tts_no_tokens content=%r voice=%s',
+                self.content,
+                voice_settings.voice,
             )
             self.state = AudioState.FAILED
-            await self._on_state_change()
-            step(
-                guild_id,
-                'audio',
-                'process',
-                'EXIT',
-                content=self.content,
-                state='FAILED',
-                reason='no_tokens',
-            )
             return
         except AssertionError:
             logger.warning(
-                'Could not play %r with %s', self.content, voice_settings
+                'tts_assertion content=%r voice=%s',
+                self.content,
+                voice_settings.voice,
             )
             self.state = AudioState.FAILED
-            await self._on_state_change()
-            step(
-                guild_id,
-                'audio',
-                'process',
-                'EXIT',
-                content=self.content,
-                state='FAILED',
-                reason='assertion',
-            )
             return
 
-        size = self.buffer.getbuffer().nbytes
-        if size == 0:
+        payload = buffer.getvalue()
+        if not payload:
             logger.warning(
                 'tts_empty_audio content=%r voice=%s',
                 self.content,
                 voice_settings.voice,
             )
             self.state = AudioState.FAILED
-            await self._on_state_change()
-            step(
-                guild_id,
-                'audio',
-                'process',
-                'EXIT',
-                content=self.content,
-                state='FAILED',
-                reason='empty_audio',
-            )
             return
 
+        self.track_path = await self._storage.write(payload)
+        self.audio_bytes = len(payload)
         self.state = AudioState.READY
-        await self._on_state_change()
-        logger.debug('tts_ready content=%r bytes=%s', self.content, size)
-        step(
-            guild_id,
-            'audio',
-            'process',
-            'EXIT',
-            content=self.content,
-            state='READY',
-            bytes=size,
+        logger.debug(
+            'tts_ready content=%r bytes=%s path=%s',
+            self.content,
+            self.audio_bytes,
+            self.track_path,
         )
 
     async def edit(self, message: discord.Message) -> None:
+        """Reset to PENDING with new content; previously-written file is dropped."""
+        await self._storage.delete(self.track_path)
+        self.track_path = None
+        self.audio_bytes = 0
         self.state = AudioState.PENDING
         self.original = message
         self.timestamp = time.time()
         self.content = apply_edits(message)
 
-    async def _on_state_change(self) -> None:
-        pass
+    async def cleanup(self) -> None:
+        """Remove the on-disk MP3 (idempotent)."""
+        if self.track_path is not None:
+            await self._storage.delete(self.track_path)
+            self.track_path = None
 
     def __eq__(self, other: object) -> bool:
+        from discord import Message  # local import to keep boot-order simple
+
         return (
             isinstance(other, AudioMessage) and self.original == other.original
-        ) or (isinstance(other, discord.Message) and self.original == other)
+        ) or (isinstance(other, Message) and self.original == other)
+
+    def __hash__(self) -> int:
+        return hash(self.original.id)
 
     def __repr__(self) -> str:
-        return f'AudioMessage(state={self.state}, content={self.content!r})'
+        return (
+            f'AudioMessage(state={self.state.name}, content={self.content!r})'
+        )

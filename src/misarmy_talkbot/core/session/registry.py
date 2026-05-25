@@ -13,21 +13,21 @@ from misarmy_talkbot.observability.logger import logger
 from misarmy_talkbot.observability.metrics import MetricsRegistry
 
 if TYPE_CHECKING:
-    import discord
+    from discord.ext import commands
 
 
 class GuildSessionRegistry:
-    """Owns the map from guild id to running session (voice pilot plus playback engine).
+    """Owns the map from guild id to running ``GuildSession``.
 
-    Sessions are created only through ``get_or_create`` so construction hooks and metrics
-    stay honest; disposal is serialized per guild to avoid double-free during concurrent
-    voice and slash-command traffic.
+    Sessions are created only through ``get_or_create`` so construction stays
+    behind one entry point; disposal is serialized per guild to avoid
+    double-free during concurrent voice and slash-command traffic.
     """
 
     _instance: GuildSessionRegistry | None = None
 
     def __init__(self) -> None:
-        self._bot: discord.Bot | None = None
+        self._bot: commands.Bot | None = None
         self._sessions: dict[int, GuildSession] = {}
         self._locks: dict[int, asyncio.Lock] = {}
 
@@ -37,7 +37,7 @@ class GuildSessionRegistry:
             cls._instance = cls()
         return cls._instance
 
-    def bind_bot(self, bot: discord.Bot) -> None:
+    def bind_bot(self, bot: commands.Bot) -> None:
         self._bot = bot
 
     def get(self, guild_id: int) -> GuildSession | None:
@@ -78,8 +78,9 @@ class GuildSessionRegistry:
     async def dispose_all(self) -> None:
         """Tear down every guild session in parallel with a per-guild timeout.
 
-        SIGTERM gives a bounded shutdown window; gathering avoids serial dispose latency
-        across many guilds while ``wait_for`` prevents one stuck guild from starving the rest.
+        SIGTERM gives a bounded shutdown window; gathering avoids serial dispose
+        latency across many guilds while ``wait_for`` prevents one stuck guild
+        from starving the rest.
         """
         guild_ids: list[int] = list(self._sessions.keys())
 

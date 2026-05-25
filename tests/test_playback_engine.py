@@ -1,9 +1,10 @@
-"""Playback engine queue + health gating (mocked voice client, no FFmpeg/TTS)."""
+"""Playback engine queue + Lavalink-driven loop (no real Lavalink, no FFmpeg)."""
 
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import patch
+from typing import cast
+from unittest.mock import MagicMock
 
 import discord
 import pytest
@@ -11,155 +12,149 @@ import pytest
 from misarmy_talkbot.core.ops.announcer import ErrorReplyAnnouncer
 from misarmy_talkbot.core.playback.audio import AudioState
 from misarmy_talkbot.core.playback.engine import PlaybackEngine
-from misarmy_talkbot.core.voice.pilot import VoicePilot
 from misarmy_talkbot.observability.metrics import MetricsRegistry
 from tests.helpers import (
-    FakeBot,
-    FakeVoiceClient,
-    noop_async,
+    FakeLavalinkSession,
+    install_temp_audio_storage,
     ready_audio_message,
 )
 
 
+def _master_channel(player_channel_id: int) -> discord.VoiceChannel:
+    channel = MagicMock(spec=discord.VoiceChannel)
+    channel.id = player_channel_id
+    return channel
+
+
 @pytest.fixture
 def engine_setup() -> tuple[
-    PlaybackEngine, VoicePilot, FakeVoiceClient, MetricsRegistry
+    PlaybackEngine, FakeLavalinkSession, MetricsRegistry
 ]:
+    install_temp_audio_storage()
     MetricsRegistry._instance = None
     metrics = MetricsRegistry.instance()
-    bot = FakeBot()
-    voice_pilot = VoicePilot(bot, 7)  # type: ignore[arg-type]
-    voice_client = FakeVoiceClient(connected=True)
-    voice_pilot._voice_client = voice_client  # type: ignore[assignment]
-    voice_pilot.intended_channel_id = 1
-    voice_client.channel.id = 1
+    lavalink = FakeLavalinkSession(guild_id=7)
     announcer = ErrorReplyAnnouncer(7)
-    engine = PlaybackEngine(7, voice_pilot, announcer, metrics=metrics)
-    return engine, voice_pilot, voice_client, metrics
+    engine = PlaybackEngine(
+        7,
+        cast('object', lavalink),  # type: ignore[arg-type]
+        announcer,
+        metrics=metrics,
+    )
+
+    def _channel() -> discord.VoiceChannel:
+        return _master_channel(lavalink.player.channel.id)
+
+    engine._master_voice_channel = _channel  # type: ignore[method-assign]
+    return engine, lavalink, metrics
 
 
-def _fake_play_that_finishes(voice_client: FakeVoiceClient) -> object:
-    def fake_play(_source: object, *, after: object = None) -> None:
-        voice_client.play_count += 1
-        voice_client._playing = True
-
-        async def stop_soon() -> None:
-            await asyncio.sleep(0.05)
-            voice_client._playing = False
-            if after is not None:
-                after(None)
-
-        asyncio.create_task(stop_soon())
-
-    return fake_play
-
-
-async def _run_speak_briefly(
-    engine: PlaybackEngine,
-    _voice_pilot: VoicePilot,
-    seconds: float = 0.35,
+@pytest.mark.asyncio
+async def test_play_one_loads_track_and_completes_on_track_end(
+    engine_setup: tuple[PlaybackEngine, FakeLavalinkSession, MetricsRegistry],
 ) -> None:
-    task = asyncio.create_task(engine._speak_loop())
+    engine, lavalink, metrics = engine_setup
+    audio = ready_audio_message()
+    await engine._queue.put(audio)
+
+    fake_track = MagicMock(name='track')
+    play_started = asyncio.Event()
+
+    async def fake_search(_query: str) -> list[object]:
+        return [fake_track]
+
+    real_play = lavalink.player.play
+
+    async def play_and_signal(
+        track: object, *, add_history: bool = False
+    ) -> None:
+        await real_play(track, add_history=add_history)
+        play_started.set()
+
+    lavalink.player.play = play_and_signal  # type: ignore[method-assign]
+
+    import wavelink
+
+    original_search = wavelink.Playable.search
+    wavelink.Playable.search = fake_search  # type: ignore[assignment]
     try:
-        await asyncio.wait_for(asyncio.sleep(seconds), timeout=seconds + 0.5)
-    finally:
+        loop_task = asyncio.create_task(engine._speak_loop())
+        await asyncio.wait_for(play_started.wait(), timeout=1.0)
+        engine.on_track_end(MagicMock())
+        await asyncio.wait_for(asyncio.sleep(0.05), timeout=0.5)
         engine._stopped = True
-        task.cancel()
+        await engine._queue.notify_state_change()
+        loop_task.cancel()
         try:
-            await task
+            await loop_task
         except asyncio.CancelledError:
             pass
+    finally:
+        wavelink.Playable.search = original_search  # type: ignore[assignment]
+
+    assert lavalink.player.play_calls == [fake_track]
+    assert metrics._counters.get('messages_played_total', {}).get(7, 0) == 1
+    assert len(engine._queue) == 0
 
 
 @pytest.mark.asyncio
-async def test_speak_loop_plays_after_gateway_transient_clears(
-    engine_setup: tuple[
-        PlaybackEngine, VoicePilot, FakeVoiceClient, MetricsRegistry
-    ],
+async def test_track_exception_clears_current_without_count(
+    engine_setup: tuple[PlaybackEngine, FakeLavalinkSession, MetricsRegistry],
 ) -> None:
-    engine, voice_pilot, voice_client, metrics = engine_setup
-    voice_pilot.set_gateway_transient(True)
-    await engine._queue.put(ready_audio_message())
+    engine, lavalink, metrics = engine_setup
+    audio = ready_audio_message()
+    await engine._queue.put(audio)
 
-    voice_client.play = _fake_play_that_finishes(voice_client)  # type: ignore[method-assign]
+    fake_track = MagicMock(name='track')
+    play_started = asyncio.Event()
 
-    async def clear_transient() -> None:
+    async def fake_search(_query: str) -> list[object]:
+        return [fake_track]
+
+    real_play = lavalink.player.play
+
+    async def play_and_signal(
+        track: object, *, add_history: bool = False
+    ) -> None:
+        await real_play(track, add_history=add_history)
+        play_started.set()
+
+    lavalink.player.play = play_and_signal  # type: ignore[method-assign]
+
+    import wavelink
+
+    original_search = wavelink.Playable.search
+    wavelink.Playable.search = fake_search  # type: ignore[assignment]
+    try:
+        loop_task = asyncio.create_task(engine._speak_loop())
+        await asyncio.wait_for(play_started.wait(), timeout=1.0)
+        payload = MagicMock()
+        payload.exception = RuntimeError('boom')
+        engine.on_track_exception(payload)
         await asyncio.sleep(0.05)
-        voice_pilot.set_gateway_transient(False)
+        engine._stopped = True
+        await engine._queue.notify_state_change()
+        loop_task.cancel()
+        try:
+            await loop_task
+        except asyncio.CancelledError:
+            pass
+    finally:
+        wavelink.Playable.search = original_search  # type: ignore[assignment]
 
-    asyncio.create_task(clear_transient())
-    with (
-        patch(
-            'misarmy_talkbot.core.playback.engine.discord.FFmpegPCMAudio',
-            return_value=object(),
-        ),
-        patch.object(voice_pilot, '_force_fresh_connect', new=noop_async),
-    ):
-        await _run_speak_briefly(engine, voice_pilot, seconds=0.5)
-    assert voice_client.play_count >= 1
-    assert metrics._counters.get('messages_played_total', {}).get(7, 0) >= 1
-
-
-@pytest.mark.asyncio
-async def test_play_client_exception_does_not_count_as_played(
-    engine_setup: tuple[
-        PlaybackEngine, VoicePilot, FakeVoiceClient, MetricsRegistry
-    ],
-) -> None:
-    engine, voice_pilot, voice_client, metrics = engine_setup
-    await engine._queue.put(ready_audio_message())
-
-    def failing_play(_source: object, *, _after: object = None) -> None:
-        raise discord.errors.ClientException('busy')
-
-    voice_client.play = failing_play  # type: ignore[method-assign]
-    with (
-        patch(
-            'misarmy_talkbot.core.playback.engine.discord.FFmpegPCMAudio',
-            return_value=object(),
-        ),
-        patch.object(voice_pilot, '_force_fresh_connect', new=noop_async),
-    ):
-        await _run_speak_briefly(engine, voice_pilot, seconds=0.25)
     assert metrics._counters.get('messages_played_total', {}).get(7, 0) == 0
-
-
-@pytest.mark.asyncio
-async def test_speak_loop_recovers_when_voice_down(
-    engine_setup: tuple[
-        PlaybackEngine, VoicePilot, FakeVoiceClient, MetricsRegistry
-    ],
-) -> None:
-    engine, voice_pilot, voice_client, metrics = engine_setup
-    voice_client._connected = False
-    await engine._queue.put(ready_audio_message())
-
-    async def fake_recover(*_args: object, **_kwargs: object) -> None:
-        voice_client._connected = True
-
-    voice_pilot.recover = fake_recover  # type: ignore[method-assign]
-
-    voice_client.play = _fake_play_that_finishes(voice_client)  # type: ignore[method-assign]
-
-    with (
-        patch(
-            'misarmy_talkbot.core.playback.engine.discord.FFmpegPCMAudio',
-            return_value=object(),
-        ),
-        patch.object(voice_pilot, '_force_fresh_connect', new=noop_async),
-    ):
-        await _run_speak_briefly(engine, voice_pilot, seconds=0.6)
-    assert voice_client.play_count >= 1
-    assert metrics._counters.get('messages_played_total', {}).get(7, 0) >= 1
+    assert (
+        metrics._counters.get('lavalink_track_exception_total', {}).get(7, 0)
+        == 1
+    )
+    assert len(engine._queue) == 0
 
 
 @pytest.mark.asyncio
 async def test_enqueue_failed_tts_announces_and_removes(
-    engine_setup: tuple[
-        PlaybackEngine, VoicePilot, FakeVoiceClient, MetricsRegistry
-    ],
+    engine_setup: tuple[PlaybackEngine, FakeLavalinkSession, MetricsRegistry],
 ) -> None:
-    engine, _voice_pilot, _voice_client, metrics = engine_setup
+    engine, _lavalink, metrics = engine_setup
     audio = ready_audio_message()
     announced: list[tuple[str, str]] = []
 
@@ -175,6 +170,35 @@ async def test_enqueue_failed_tts_announces_and_removes(
     audio.process = mark_failed  # type: ignore[method-assign]
 
     await engine.enqueue(audio)
+    pending = list(engine._gen_tasks)
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
     assert len(engine._queue) == 0
     assert metrics._counters.get('tts_failures_total', {}).get(7, 0) == 1
     assert announced and announced[0][0] == 'tts'
+
+
+@pytest.mark.asyncio
+async def test_stop_member_removes_only_their_messages(
+    engine_setup: tuple[PlaybackEngine, FakeLavalinkSession, MetricsRegistry],
+) -> None:
+    engine, _lavalink, _metrics = engine_setup
+    audio_a = ready_audio_message(content='a')
+    audio_b = ready_audio_message(content='b')
+    cast('discord.Member', audio_a.original.author).id = 100
+    cast('discord.Member', audio_b.original.author).id = 200
+
+    await engine._queue.put(audio_a)
+    await engine._queue.put(audio_b)
+
+    member = MagicMock(spec=discord.Member)
+    member.id = 100
+    member.guild_permissions = MagicMock(mute_members=False)
+    audio_a.original.author = member
+    audio_b.original.author = MagicMock(spec=discord.Member, id=200)
+
+    color, msgid = await engine.stop(member)
+    assert msgid == 'shut_up_success'
+    assert audio_a not in engine._queue
+    assert audio_b in engine._queue
+    _ = color

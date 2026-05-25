@@ -1,4 +1,3 @@
-from misarmy_talkbot.core.voice.pilot import VoicePilot
-from misarmy_talkbot.core.voice.voice_client import MisarmyVoiceClient
+from misarmy_talkbot.core.voice.lavalink_session import LavalinkSession
 
-__all__ = ['VoicePilot', 'MisarmyVoiceClient']
+__all__ = ['LavalinkSession']

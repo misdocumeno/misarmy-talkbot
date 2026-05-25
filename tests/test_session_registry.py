@@ -1,4 +1,4 @@
-"""Guild session registry lifecycle (mocked pilot/engine startup, no Discord voice)."""
+"""Guild session registry lifecycle (mocked Lavalink, no Discord voice)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import pytest
 
 from misarmy_talkbot.core.playback.engine import PlaybackEngine
 from misarmy_talkbot.core.session.registry import GuildSessionRegistry
-from misarmy_talkbot.core.voice.pilot import VoicePilot
+from misarmy_talkbot.core.voice.lavalink_session import LavalinkSession
 from tests.helpers import noop_async
 
 
@@ -18,11 +18,9 @@ async def test_get_or_create_returns_same_session() -> None:
     bot = MagicMock()
     registry.bind_bot(bot)
     with (
-        patch.object(VoicePilot, 'start_supervisor', lambda _self: None),
         patch.object(PlaybackEngine, 'start', lambda _self: None),
-        patch.object(VoicePilot, 'disconnect', noop_async),
+        patch.object(LavalinkSession, 'disconnect', noop_async),
         patch.object(PlaybackEngine, 'shutdown', noop_async),
-        patch.object(VoicePilot, 'stop_supervisor', noop_async),
     ):
         first = await registry.get_or_create(99)
         second = await registry.get_or_create(99)
@@ -36,11 +34,9 @@ async def test_dispose_removes_session() -> None:
     bot = MagicMock()
     registry.bind_bot(bot)
     with (
-        patch.object(VoicePilot, 'start_supervisor', lambda _self: None),
         patch.object(PlaybackEngine, 'start', lambda _self: None),
-        patch.object(VoicePilot, 'disconnect', noop_async),
+        patch.object(LavalinkSession, 'disconnect', noop_async),
         patch.object(PlaybackEngine, 'shutdown', noop_async),
-        patch.object(VoicePilot, 'stop_supervisor', noop_async),
     ):
         await registry.get_or_create(99)
         await registry.dispose(99)
@@ -51,16 +47,14 @@ async def test_dispose_removes_session() -> None:
 async def test_rapid_follow_unfollow_pattern_keeps_at_most_one_session() -> (
     None
 ):
-    """Mimics §18 race: dispose must finish before a new session is visible."""
+    """Dispose must finish before a new session is visible (per-guild lock)."""
     registry = GuildSessionRegistry.instance()
     bot = MagicMock()
     registry.bind_bot(bot)
     with (
-        patch.object(VoicePilot, 'start_supervisor', lambda _self: None),
         patch.object(PlaybackEngine, 'start', lambda _self: None),
-        patch.object(VoicePilot, 'disconnect', noop_async),
+        patch.object(LavalinkSession, 'disconnect', noop_async),
         patch.object(PlaybackEngine, 'shutdown', noop_async),
-        patch.object(VoicePilot, 'stop_supervisor', noop_async),
     ):
         session_a = await registry.get_or_create(5)
         await registry.dispose(5)
