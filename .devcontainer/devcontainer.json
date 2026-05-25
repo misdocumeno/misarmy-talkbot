@@ -12,7 +12,8 @@
       "extensions": [
         "charliermarsh.ruff",
         "ms-python.python",
-        "ms-python.debugpy"
+        "ms-python.debugpy",
+        "streetsidesoftware.code-spell-checker"
       ],
       "settings": {
         "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
