@@ -39,10 +39,10 @@ services:
     healthcheck:
       # HEAD /version — not logged when logging.request.enabled is false.
       test: ["CMD-SHELL", "wget -q --spider --header=\"Authorization: $$LAVALINK_SERVER_PASSWORD\" http://localhost:2333/version || exit 1"]
-      interval: 30s
+      interval: 5s
       timeout: 3s
-      retries: 5
-      start_period: 5s
+      retries: 20
+      start_period: 30s
 
 volumes:
   misarmy-talkbot-config:

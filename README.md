@@ -3,9 +3,36 @@
 Discord TTS bot. The package lives under `src/misarmy_talkbot`.
 
 Voice playback is delegated to [Lavalink](https://lavalink.dev/) via
-[wavelink](https://github.com/PythonistaGuild/Wavelink); the bot does **not**
-run an in-process `VoiceClient` or its own FFmpeg playback. Generated TTS
-audio is written to a shared `tmpfs` volume that Lavalink loads via `file://`.
+[wavelink](https://github.com/PythonistaGuild/Wavelink). TTS is still generated
+in the bot; only transport and decoding run in Lavalink. Generated audio is
+written to a shared `tmpfs` volume that Lavalink loads by absolute path.
+
+## Why Lavalink and wavelink (not discord.py voice)
+
+The bot used to drive voice with an in-process `VoiceClient` and FFmpeg
+(py-cord). That couples the Discord gateway, the voice WebSocket, FFmpeg
+subprocesses, and playback state in one Python process. In practice that meant
+custom recovery loops, close-code handling, and fragile restarts when any layer
+stalled.
+
+**Lavalink** is a separate audio node: it owns the voice protocol, buffering,
+and Lavaplayer decoding. The bot stays a thin control plane (connect, enqueue
+tracks, react to track events). **wavelink** is the discord.py-oriented client
+for Lavalink v4 REST/WebSocket; we use stock `discord.py` plus wavelink rather
+than maintaining a fork for voice.
+
+Tradeoffs we accepted:
+
+- **Extra service** — a JVM Lavalink container in Compose; ops cost is one more
+  process, gain is isolating audio from the bot event loop.
+- **Local files via tmpfs** — TTS MP3s live on a volume mounted in both
+  containers; Lavalink loads `local` sources by path (no bot-side HTTP server).
+- **Less bot-side voice logic** — no in-process FFmpeg for playback, no voice
+  health gate or close-code state machine; session resume and transport issues
+  are Lavalink/wavelink concerns.
+
+TTS generation (gTTS, ffmpeg post-process for MP3) remains in Python; only
+playback moved out of process.
 
 ## Run it (Docker)
 
@@ -62,7 +89,7 @@ Per-guild flow:
 1. Slash command or follow event hits `LavalinkSession.ensure_connected_to(channel_id)`.
 2. The bot calls `channel.connect(cls=wavelink.Player, self_deaf=True)` (or `move_to`).
 3. For each text message, `PlaybackEngine.enqueue(audio)` schedules `audio.process()` as a background task; TTS bytes are written to `${AUDIO_DIR}/<uuid>.mp3` (a tmpfs volume mounted in both containers).
-4. The speak loop waits for the head of the queue to reach `READY`, then loads the file via `wavelink.Pool.fetch_tracks('/tmp/talkbot-audio/<uuid>.mp3')` (plain absolute path; do not use `Playable.search` with `file://` or Lavalink will treat it as a YouTube Music query) and calls `player.play(track)`.
+4. The speak loop waits for the head of the queue to reach `READY`, then loads the file via `wavelink.Pool.fetch_tracks('/tmp/talkbot-audio/<uuid>.mp3')` (plain absolute path; do not use `Playable.search` with `file://` or Lavalink will treat it as a YouTube Music query) and calls `LavalinkSession.play_track()` (minimal PATCH without disabled filters).
 5. The loop blocks on `_track_done` (an `asyncio.Event` set by `on_wavelink_track_end` / `on_wavelink_track_exception`); no polling, no FFmpeg in the bot process for playback.
 6. After track end, the bot deletes the MP3; the `AudioStorage` janitor sweeps anything orphaned by crashes.
 
@@ -112,43 +139,10 @@ Logs are written inside the container at `/data/talkbot.log` and appear on the h
 Debug overlay (bind-mounts source, enables debugpy, DEBUG logs):
 
 ```bash
-mkdir -p logs
+mkdir -p logs/lavalink
 docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build
 ```
 
 In VS Code, Cursor, or any editor with a [debugpy](https://github.com/microsoft/debugpy) attach config, use the **Docker: Attach to Talkbot** launch configuration (F5) after the bot is online. Path mapping: local `src/misarmy_talkbot/` → container `/home/bot/src/misarmy_talkbot`. Tokens come from `.env` via compose `env_file`.
 
 The attach port is optional and never blocks startup or the event loop.
-
-## Lavalink `HEAD /version` lines
-
-If you see `RequestLoggingFilter … HEAD /version` every few seconds, that is **Docker Compose’s healthcheck** probing Lavalink, not the bot. With `logging.request.enabled: false` in `lavalink/application.yml` (production default), those probes are silent. They only appear when request logging is on (e.g. `lavalink/application.debug.yml` via the debug compose overlay). The healthcheck interval is 30s in production.
-
-## Shutdown
-
-`docker compose down` / Ctrl+C sends **SIGTERM**. Lavalink often exits with code **143** (128 + 13 = SIGTERM); that is normal, not a crash. The bot should dispose guild sessions and close the wavelink pool on SIGTERM; if you still see errors on stop, check the latest bot log after fixing event handlers.
-
-## Logs to watch
-
-For a healthy boot you should see:
-
-```
-lavalink_pool_connect_initiated host=lavalink port=2333
-lavalink_node_ready node=main session_id=... resumed=...
-Logged in as <bot> (guilds=...)
-```
-
-Per-message playback logs:
-
-```
-lavalink_connected guild_id=<g> channel_id=<c>
-tts_ready content=... bytes=... path=/tmp/talkbot-audio/...mp3
-```
-
-If a track failed:
-
-```
-speak_track_failed guild_id=<g> reason=...
-```
-
-If Lavalink is unreachable, the bot logs `lavalink_pool_connect_failed` and continues to run; commands that need voice will fail until the node is back.
