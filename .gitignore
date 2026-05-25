@@ -1,7 +1,12 @@
 .env
 .venv
 TODO.md
+/logs/
 /config
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
 
 # Python
 __pycache__/
