@@ -1,0 +1,23 @@
+{
+  "include": ["src", "tests"],
+  "extraPaths": ["src", "."],
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "strict",
+  "reportMissingTypeStubs": false,
+  "reportUnknownMemberType": "none",
+  "reportUnknownArgumentType": "none",
+  "reportUnknownVariableType": "none",
+  "reportUnknownLambdaType": "none",
+  "reportUntypedFunctionDecorator": "none",
+  "reportUnusedFunction": "none",
+  "reportPrivateUsage": "none",
+  "executionEnvironments": [
+    {
+      "root": "tests",
+      "extraPaths": ["src", "."],
+      "reportArgumentType": "none",
+      "reportAttributeAccessIssue": "none",
+      "reportCallIssue": "none"
+    }
+  ]
+}
