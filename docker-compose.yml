@@ -6,10 +6,15 @@ services:
       dockerfile: Dockerfile
     volumes:
       - misarmy-talkbot-config:/home/bot/config
+      # Host ./logs → container /data (rotating DEBUG file at /data/talkbot.log)
+      - ./logs:/data
     env_file:
       - .env
-    ports:
-      - "5678:5678"
+    environment:
+      LOG_LEVEL: DEBUG
+      LOG_FILE: /data/talkbot.log
+      FORENSICS_ENABLED: "true"
+    restart: unless-stopped
 
 volumes:
   misarmy-talkbot-config:

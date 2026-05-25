@@ -1,25 +1,36 @@
+# Dev: Poetry. Prod image: in-project venv from Poetry, run with plain python (no Poetry at runtime).
+FROM python:3.12-slim-bookworm AS builder
+
+RUN pip install --no-cache-dir poetry==2.2.1
+
+WORKDIR /app
+COPY pyproject.toml poetry.lock ./
+COPY src ./src
+
+RUN poetry config virtualenvs.in-project true \
+    && poetry install --only main --no-root --no-interaction
+
 FROM python:3.12-slim-bookworm
 
-RUN apt-get update && apt-get install -y ffmpeg git && apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m bot
 
-USER bot
-
 WORKDIR /home/bot
 
-RUN mkdir /home/bot/config
+RUN mkdir -p /home/bot/config
 
-ENV PATH="$PATH:/home/bot/.local/bin"
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/home/bot/src
+ENV PATH=/home/bot/.venv/bin:$PATH
 
-ENV PYTHON_ENV="prod"
+COPY --from=builder /app/.venv /home/bot/.venv
+COPY --from=builder /app/src/misarmy_talkbot /home/bot/src/misarmy_talkbot
 
-RUN pip install poetry==1.8.3
+USER bot
 
-COPY pyproject.toml poetry.lock* ./
-
-RUN poetry install --no-interaction --no-root --only main
-
-COPY misarmy_talkbot/ misarmy_talkbot/
-
-ENTRYPOINT [ "poetry", "run", "python", "-m", "misarmy_talkbot" ]
+ENTRYPOINT ["python", "-m", "misarmy_talkbot"]
+CMD []
