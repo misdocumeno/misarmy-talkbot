@@ -21,6 +21,7 @@ from misarmy_talkbot.core.session.registry import GuildSessionRegistry
 from misarmy_talkbot.infra.audio_storage import AudioStorage
 from misarmy_talkbot.infra.config.command import on_config_mention
 from misarmy_talkbot.infra.config.config import (
+    apply_global_presence,
     default_config,
     get_config_json,
     set_default_config,
@@ -65,6 +66,7 @@ async def _first_boot(bot: commands.Bot) -> None:
     try:
         await create_tables()
         await _load_guild_config(None)
+        await apply_global_presence(bot)
         for guild in bot.guilds:
             await _load_guild_config(guild)
         interval = float(os.getenv('METRICS_SNAPSHOT_INTERVAL_SECONDS', '300'))
@@ -234,6 +236,10 @@ def register_events(bot: commands.Bot) -> None:
     async def on_ready() -> None:
         global _first_ready_done
         logger.info('Logged in as %s (guilds=%s)', bot.user, len(bot.guilds))
+        try:
+            await apply_global_presence(bot)
+        except Exception:
+            logger.exception('presence_apply_failed')
         asyncio.get_running_loop().call_soon(start_debugpy_if_enabled)
         if not _first_ready_done:
             _first_ready_done = True

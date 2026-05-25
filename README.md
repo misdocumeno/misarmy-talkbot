@@ -95,6 +95,33 @@ Per-guild flow:
 
 There is no voice recovery loop, health gate, or close-code state machine. Lavalink and wavelink own voice transport stability.
 
+## Configuration
+
+Config is JSONC on disk (comments allowed), validated at load time with Pydantic.
+
+| File | Scope |
+|------|--------|
+| [`config/global.jsonc`](config/global.jsonc) | Defaults for all guilds (locale, voice, replacements, **presence**, …) |
+| `config/guilds/<guild_id>.jsonc` | Per-guild overrides (optional; created via `/config`) |
+| [`src/misarmy_talkbot/infra/config/default_config.jsonc`](src/misarmy_talkbot/infra/config/default_config.jsonc) | Shipped template returned by `/config default` — not a runtime path named `config.jsonc` |
+
+**Presence** (global only in practice): sidebar subtitle under the bot name in the member list.
+
+```jsonc
+"presence": {
+  "type": "playing",
+  "name": "/follow to talk in voice"
+}
+```
+
+- `type`: `playing` (default; Discord hides the “Playing” prefix for bots), `listening`, `watching`, `competing`, or `streaming`.
+- `name`: up to 128 characters; Unicode emoji allowed.
+- `url`: required only for `streaming` (Twitch or YouTube URL).
+
+**localeOverrides**: map gettext message ids to custom strings for that guild (or global). See `localeOverrides` in the template above.
+
+After editing `global.jsonc`, restart the bot (or rely on the next boot load in `first_boot`) for presence to refresh.
+
 ## Environment
 
 | Variable | Default | Description |
