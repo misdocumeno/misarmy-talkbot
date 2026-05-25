@@ -17,3 +17,7 @@ services:
     ports:
       - "5678:5678"
     restart: "no"
+
+  lavalink:
+    volumes:
+      - ./lavalink/application.debug.yml:/opt/Lavalink/application.yml:ro

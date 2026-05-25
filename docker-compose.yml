@@ -30,17 +30,19 @@ services:
     restart: unless-stopped
     volumes:
       - ./lavalink/application.yml:/opt/Lavalink/application.yml:ro
+      - ./logs/lavalink:/opt/Lavalink/logs
       - audio-tmpfs:/tmp/talkbot-audio
     environment:
       _JAVA_OPTIONS: "-Xmx512m"
       SERVER_PORT: "2333"
       LAVALINK_SERVER_PASSWORD: ${LAVALINK_PASSWORD:-youshallnotpass}
     healthcheck:
+      # HEAD /version — not logged when logging.request.enabled is false.
       test: ["CMD-SHELL", "wget -q --spider --header=\"Authorization: $$LAVALINK_SERVER_PASSWORD\" http://localhost:2333/version || exit 1"]
-      interval: 5s
+      interval: 30s
       timeout: 3s
-      retries: 20
-      start_period: 30s
+      retries: 5
+      start_period: 5s
 
 volumes:
   misarmy-talkbot-config:

@@ -12,7 +12,7 @@ audio is written to a shared `tmpfs` volume that Lavalink loads via `file://`.
 I run it in a container, not directly on the host. You need a `.env` with `DISCORD_TOKEN` (see [Environment](#environment)).
 
 ```bash
-mkdir -p logs
+mkdir -p logs/lavalink
 docker compose up --build
 ```
 
@@ -28,7 +28,10 @@ docker compose up --build -d
 docker compose logs -f misarmy_talkbot
 ```
 
-Logs land in `./logs/talkbot.log` on the host (bind-mounted from `/data/talkbot.log` in the container).
+Logs:
+
+- **Bot:** `./logs/talkbot.log` on the host (`LOG_FILE=/data/talkbot.log` in the container). Both containers also write to **stdout** (`docker compose logs -f …`), which is the usual way to tail in production.
+- **Lavalink:** rotating files under `./logs/lavalink/` on the host (Lavalink `logging.file.path`). Not mixed into the bot log file.
 
 ## Development
 
@@ -90,7 +93,7 @@ There is no voice recovery loop, health gate, or close-code state machine. Laval
 Create a local log directory (gitignored), then build and run:
 
 ```bash
-mkdir -p logs
+mkdir -p logs/lavalink
 docker compose up --build
 ```
 
@@ -116,6 +119,14 @@ docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build
 In VS Code, Cursor, or any editor with a [debugpy](https://github.com/microsoft/debugpy) attach config, use the **Docker: Attach to Talkbot** launch configuration (F5) after the bot is online. Path mapping: local `src/misarmy_talkbot/` → container `/home/bot/src/misarmy_talkbot`. Tokens come from `.env` via compose `env_file`.
 
 The attach port is optional and never blocks startup or the event loop.
+
+## Lavalink `HEAD /version` lines
+
+If you see `RequestLoggingFilter … HEAD /version` every few seconds, that is **Docker Compose’s healthcheck** probing Lavalink, not the bot. With `logging.request.enabled: false` in `lavalink/application.yml` (production default), those probes are silent. They only appear when request logging is on (e.g. `lavalink/application.debug.yml` via the debug compose overlay). The healthcheck interval is 30s in production.
+
+## Shutdown
+
+`docker compose down` / Ctrl+C sends **SIGTERM**. Lavalink often exits with code **143** (128 + 13 = SIGTERM); that is normal, not a crash. The bot should dispose guild sessions and close the wavelink pool on SIGTERM; if you still see errors on stop, check the latest bot log after fixing event handlers.
 
 ## Logs to watch
 

@@ -279,12 +279,15 @@ def register_events(bot: commands.Bot) -> None:
         )
 
     @bot.event
-    async def on_wavelink_node_closed(node: wavelink.Node) -> None:
-        # Wavelink reconnects automatically; we just log.
+    async def on_wavelink_node_closed(
+        node: wavelink.Node, disconnected: list[wavelink.Player]
+    ) -> None:
+        # Fired when the node websocket closes (including Pool.close on shutdown).
         logger.warning(
-            'lavalink_node_closed node=%s status=%s',
+            'lavalink_node_closed node=%s status=%s players=%s',
             node.identifier,
             node.status,
+            len(disconnected),
         )
 
     @bot.event

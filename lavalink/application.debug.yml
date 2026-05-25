@@ -1,3 +1,6 @@
+# Debug overlay for Lavalink (mount via docker-compose.debug.yml).
+# Extends production settings with per-request HTTP logging (verbose).
+
 server:
   port: 2333
   address: 0.0.0.0
@@ -12,7 +15,6 @@ lavalink:
   server:
     password: "${LAVALINK_SERVER_PASSWORD:youshallnotpass}"
     sources:
-      # Local files: bot passes absolute paths under the shared tmpfs mount.
       local: true
       youtube: false
       bandcamp: false
@@ -59,11 +61,8 @@ logging:
     root: INFO
     lavalink: INFO
 
-  # Off in production: Docker healthcheck hits HEAD /version every interval and
-  # each request is logged at INFO when this is true. Use application.debug.yml
-  # via docker-compose.debug.yml when debugging Lavalink REST traffic.
   request:
-    enabled: false
+    enabled: true
 
   logback:
     rollingpolicy:
