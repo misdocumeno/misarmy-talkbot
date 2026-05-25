@@ -8,13 +8,19 @@ from misarmy_talkbot.infra.config.config import validate_config
 from misarmy_talkbot.infra.config.presence import (
     PresenceConfig,
     build_presence_activity,
+    resolve_presence_name,
 )
 
 
 def test_presence_defaults() -> None:
     presence = PresenceConfig()
     assert presence.type == 'playing'
-    assert presence.name == '/follow to talk in voice'
+    assert presence.name is None
+
+
+def test_resolve_presence_name_uses_gettext_default() -> None:
+    name = resolve_presence_name(PresenceConfig(), guild=None)
+    assert name == '/follow to talk in voice'
 
 
 def test_presence_in_full_config() -> None:

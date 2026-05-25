@@ -224,3 +224,26 @@ msgstr "{locales}"
 
 msgid "generate_audio_failed"
 msgstr "Failed to generate speech from your message! Check your voice settings."
+
+
+msgid "presence_default_name"
+msgstr "/follow to talk in voice"
+
+
+msgid "ops_announce_title"
+msgstr "Talkbot couldn't read your message"
+
+msgid "ops_announce_phase_tts"
+msgstr "Text-to-speech"
+
+msgid "ops_announce_phase_voice"
+msgstr "Voice connection"
+
+msgid "ops_announce_phase_ffmpeg"
+msgstr "Audio playback"
+
+msgid "ops_announce_phase_playback"
+msgstr "Playback"
+
+msgid "ops_announce_phase_permissions"
+msgstr "Permissions"

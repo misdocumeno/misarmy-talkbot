@@ -2,12 +2,6 @@
   // a supported locale, like "en_US". "guild_preferred" to use the guild's preferred locale.
   // use /locales to see all supported locales.
   "locale": "guild_preferred",
-  // Bot subtitle in the member list (global.jsonc only; guild files may omit).
-  // type: playing | listening | watching | competing | streaming (streaming needs url)
-  "presence": {
-    "type": "playing",
-    "name": "/follow to talk in voice"
-  },
   "defaultVoice": "edge/en-US-BrianMultilingualNeural",
   "replacements": {
     // replace some pattern with something else

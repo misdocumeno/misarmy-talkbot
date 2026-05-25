@@ -24,15 +24,14 @@ class PresenceConfig(BaseModel):
     """Sidebar subtitle shown for the bot (Rich Presence activity)."""
 
     type: _PRESENCE_TYPES = 'playing'
-    name: str = Field(
-        default='/follow to talk in voice',
-        max_length=128,
-    )
+    name: str | None = Field(default=None, max_length=128)
     url: str | None = None
 
     @field_validator('name')
     @classmethod
-    def name_not_blank(cls, value: str) -> str:
+    def name_not_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         stripped = value.strip()
         if not stripped:
             msg = 'presence.name must not be empty'
@@ -55,11 +54,24 @@ class PresenceConfig(BaseModel):
         return self
 
 
-def build_presence_activity(presence: PresenceConfig) -> discord.Activity:
+def resolve_presence_name(
+    presence: PresenceConfig, guild: discord.Guild | None = None
+) -> str:
+    """Config ``name`` overrides; otherwise gettext ``presence_default_name``."""
+    if presence.name is not None:
+        return presence.name
+    from misarmy_talkbot.infra.locale.i18n import translate
+
+    return translate('presence_default_name', guild)
+
+
+def build_presence_activity(
+    presence: PresenceConfig, *, guild: discord.Guild | None = None
+) -> discord.Activity:
     """Build a discord.py Activity from validated config."""
     kwargs: dict[str, object] = {
         'type': _TYPE_TO_ACTIVITY[presence.type],
-        'name': presence.name,
+        'name': resolve_presence_name(presence, guild),
     }
     if presence.type == 'streaming' and presence.url is not None:
         kwargs['url'] = presence.url

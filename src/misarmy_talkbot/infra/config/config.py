@@ -103,12 +103,12 @@ async def apply_global_presence(bot: discord.Client) -> None:
     """Set bot sidebar activity from ``global_config.presence``."""
     from misarmy_talkbot.infra.config.presence import build_presence_activity
 
-    activity = build_presence_activity(global_config.presence)
+    activity = build_presence_activity(global_config.presence, guild=None)
     await bot.change_presence(activity=activity)
     logger.info(
         'presence_applied type=%s name=%r',
         global_config.presence.type,
-        global_config.presence.name,
+        activity.name,
     )
 
 

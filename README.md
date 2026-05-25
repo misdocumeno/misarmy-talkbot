@@ -105,17 +105,19 @@ Config is JSONC on disk (comments allowed), validated at load time with Pydantic
 | `config/guilds/<guild_id>.jsonc` | Per-guild overrides (optional; created via `/config`) |
 | [`src/misarmy_talkbot/infra/config/default_config.jsonc`](src/misarmy_talkbot/infra/config/default_config.jsonc) | Shipped template returned by `/config default` — not a runtime path named `config.jsonc` |
 
-**Presence** (global only in practice): sidebar subtitle under the bot name in the member list.
+**Presence** (global only): sidebar subtitle under the bot name. By default the text comes from the gettext id `presence_default_name` (see locale `messages.po` files). Override in `config/global.jsonc`:
 
 ```jsonc
 "presence": {
   "type": "playing",
-  "name": "/follow to talk in voice"
+  "name": "Custom sidebar text"
 }
 ```
 
+Omit `name` (or omit `presence` entirely) to use the translated default. You can also override the default string via `localeOverrides` with key `presence_default_name`.
+
 - `type`: `playing` (default; Discord hides the “Playing” prefix for bots), `listening`, `watching`, `competing`, or `streaming`.
-- `name`: up to 128 characters; Unicode emoji allowed.
+- `name`: optional; up to 128 characters when set.
 - `url`: required only for `streaming` (Twitch or YouTube URL).
 
 **localeOverrides**: map gettext message ids to custom strings for that guild (or global). See `localeOverrides` in the template above.

@@ -8,6 +8,7 @@ from typing import Literal
 
 import discord
 
+from misarmy_talkbot.infra.locale import translate
 from misarmy_talkbot.observability.logger import logger
 from misarmy_talkbot.observability.metrics import MetricsRegistry
 
@@ -58,17 +59,23 @@ class ErrorReplyAnnouncer:
                 )
                 return
 
-        titles = {
-            'tts': 'Text-to-speech',
-            'voice': 'Voice connection',
-            'ffmpeg': 'Audio playback',
-            'playback': 'Playback',
-            'permissions': 'Permissions',
+        phase_msgids = {
+            'tts': 'ops_announce_phase_tts',
+            'voice': 'ops_announce_phase_voice',
+            'ffmpeg': 'ops_announce_phase_ffmpeg',
+            'playback': 'ops_announce_phase_playback',
+            'permissions': 'ops_announce_phase_permissions',
         }
+        guild = message.guild
+        phase_label = (
+            translate(phase_msgids[phase], guild)
+            if phase in phase_msgids
+            else phase
+        )
         embed = discord.Embed(
-            title="Talkbot couldn't read your message",
-            description=f'{titles.get(phase, phase)}\n{summary}',
-            color=discord.Colour.orange(),
+            title=translate('ops_announce_title', guild),
+            description=f'{phase_label}\n{summary}',
+            color=discord.Colour.red(),
         )
         try:
             await message.reply(embed=embed, mention_author=False)
