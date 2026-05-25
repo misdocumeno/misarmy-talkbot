@@ -60,7 +60,7 @@ logging:
     lavalink: INFO
 
   request:
-    enabled: false
+    enabled: true
 
   logback:
     rollingpolicy:

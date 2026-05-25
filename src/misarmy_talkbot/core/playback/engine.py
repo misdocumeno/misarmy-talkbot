@@ -375,7 +375,21 @@ class PlaybackEngine:
         self._track_done.clear()
         self._track_failure = None
         try:
-            await player.play(track, add_history=False)
+            await self._lavalink.play_track(player, track)
+        except wavelink.LavalinkException as exc:
+            logger.error(
+                'speak_play_failed guild_id=%s lavalink_message=%s',
+                self.guild_id,
+                getattr(exc, 'message', str(exc)),
+            )
+            self._current = None
+            await self._announcer.announce(
+                audio.original,
+                'playback',
+                'Lavalink rejected play().',
+            )
+            await self._drop_head(audio)
+            return
         except Exception:
             logger.exception('speak_play_failed guild_id=%s', self.guild_id)
             self._current = None

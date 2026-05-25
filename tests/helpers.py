@@ -77,6 +77,9 @@ class FakeLavalinkSession:
     async def disconnect(self) -> None:
         await self.player.disconnect(force=True)
 
+    async def play_track(self, player: FakeLavalinkPlayer, track: object) -> None:
+        await player.play(track, add_history=False)
+
 
 class FakeBot:
     def __init__(self, guild_id: int = 1) -> None:

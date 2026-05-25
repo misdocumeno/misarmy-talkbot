@@ -7,7 +7,8 @@ playback transport; the bot only asks "be in this channel" / "play this track".
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import asyncio
+from typing import TYPE_CHECKING, cast
 
 import discord
 import wavelink
@@ -16,6 +17,8 @@ from misarmy_talkbot.observability.logger import logger
 
 if TYPE_CHECKING:
     from discord.ext import commands
+
+    from wavelink.types.request import Request as LavalinkRequest
 
 
 class LavalinkSession:
@@ -113,3 +116,37 @@ class LavalinkSession:
             )
         else:
             logger.info('lavalink_disconnected guild_id=%s', self.guild_id)
+
+    async def play_track(self, player: wavelink.Player, track: wavelink.Playable) -> None:
+        """Start playback with a Lavalink-safe update payload.
+
+        ``wavelink.Player.play()`` always sends default equalizer bands. Our
+        Lavalink config disables equalizer (and other filters we do not use),
+        so that payload gets HTTP 400. We PATCH only track + transport fields.
+        """
+        guild = player.guild
+        if guild is None:
+            raise RuntimeError('player has no guild')
+
+        if not player.connected:
+            try:
+                await asyncio.wait_for(player._connection_event.wait(), timeout=10.0)
+            except TimeoutError as exc:
+                raise RuntimeError('lavalink player not connected') from exc
+
+        request = cast(
+            'LavalinkRequest',
+            {
+                'track': {'encoded': track.encoded},
+                'volume': player.volume,
+                'position': 0,
+                'paused': False,
+            },
+        )
+        await player.node._update_player(guild.id, data=request, replace=True)
+
+        player._current = track
+        player._original = track
+        player._previous = player._current
+        player.queue._loaded = track
+        player._paused = False
