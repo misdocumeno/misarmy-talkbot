@@ -36,7 +36,7 @@ playback moved out of process.
 
 ## Run it (Docker)
 
-I run it in a container, not directly on the host. You need a `.env` with `DISCORD_TOKEN` (see [Environment](#environment)).
+I run it in a container, not directly on the host. Copy [`.env.example`](.env.example) to `.env`, set `DISCORD_TOKEN`, and see [Environment](#environment) for other variables.
 
 ### Development (build bot image locally)
 
@@ -82,7 +82,7 @@ Logs:
 
 ## Development
 
-Clone the repo, create `.env`, then install tooling with [Poetry](https://python-poetry.org/) if you want to edit Python locally:
+Clone the repo, copy `.env.example` to `.env`, then install tooling with [Poetry](https://python-poetry.org/) if you want to edit Python locally:
 
 | Task | Command |
 |------|---------|
@@ -102,9 +102,9 @@ Production images install dependencies at build time and run `python -m misarmy_
 | Workflow | When it runs | What it does |
 |----------|----------------|--------------|
 | **CI** | Pull requests and pushes to `main` | `ruff format --check`, `ruff check`, `pyright`, `pytest` |
-| **Publish Docker image (GHCR)** | Push to `main` only | Builds the image and pushes to `ghcr.io/<owner>/<repo>` |
+| **Publish Docker image (GHCR)** | After **CI succeeds** on a push to `main`, or manual dispatch | Builds the image and pushes to `ghcr.io/<owner>/<repo>` |
 
-Opening a pull request from your feature branch into `main` runs **CI** on GitHub before you merge. Merging and pushing `main` runs **CI** again, then **Publish** builds the container image.
+Opening a pull request into `main` runs **CI** only (no image publish). After merge, **CI** runs on `main`; **Publish** starts only if that run passes (not in parallel).
 
 ### Dev container (optional)
 
@@ -131,28 +131,28 @@ Config is JSONC on disk (comments allowed), validated at load time with Pydantic
 
 | File | Scope |
 |------|--------|
-| [`config/global.jsonc`](config/global.jsonc) | Defaults for all guilds (locale, voice, replacements, **presence**, …) |
+| `config/global.jsonc` | Defaults for all guilds (locale, voice, replacements, …). Lives on the mounted config volume at runtime (gitignored locally). |
 | `config/guilds/<guild_id>.jsonc` | Per-guild overrides (optional; created via `/config`) |
-| [`src/misarmy_talkbot/infra/config/default_config.jsonc`](src/misarmy_talkbot/infra/config/default_config.jsonc) | Shipped template returned by `/config default` — not a runtime path named `config.jsonc` |
+| [`src/misarmy_talkbot/infra/config/default_config.jsonc`](src/misarmy_talkbot/infra/config/default_config.jsonc) | Shipped template returned by `/config default` |
 
-**Presence** (global only): sidebar subtitle under the bot name. By default the text comes from the gettext id `presence_default_name` (see locale `messages.po` files). Override in `config/global.jsonc`:
+**Presence** (global only): sidebar subtitle under the bot name.
+
+- **Default text** comes from the gettext id `presence_default_name` in bundled locale files (`src/misarmy_talkbot/infra/locale/*/LC_MESSAGES/messages.po`). Edit and recompile `.mo` (or use a custom locale under `config/locales/`) to change the default line.
+- **Per-guild / global string override** without editing `.po`: `localeOverrides` with key `presence_default_name` in `global.jsonc` or a guild config.
+- **Optional** `presence` block in `global.jsonc` only if you need a non-translated custom `name`, a non-default `type`, or `streaming` + `url`:
 
 ```jsonc
 "presence": {
   "type": "playing",
-  "name": "Custom sidebar text"
+  "name": "Literal sidebar text (skips gettext)"
 }
 ```
 
-Omit `name` (or omit `presence` entirely) to use the translated default. You can also override the default string via `localeOverrides` with key `presence_default_name`.
+Omit `presence` entirely for translated default + `type: playing`. `type` values: `playing`, `listening`, `watching`, `competing`, `streaming` (`url` required for streaming).
 
-- `type`: `playing` (default; Discord hides the “Playing” prefix for bots), `listening`, `watching`, `competing`, or `streaming`.
-- `name`: optional; up to 128 characters when set.
-- `url`: required only for `streaming` (Twitch or YouTube URL).
+**localeOverrides**: map gettext message ids to custom strings for that guild (or global). See `localeOverrides` in the default config template.
 
-**localeOverrides**: map gettext message ids to custom strings for that guild (or global). See `localeOverrides` in the template above.
-
-After editing `global.jsonc`, restart the bot (or rely on the next boot load in `first_boot`) for presence to refresh.
+Restart the bot after changing `global.jsonc` or locale files so presence reloads on the next boot.
 
 ### Custom locales (production-friendly)
 
@@ -195,25 +195,6 @@ fall back to the base locale.
 | `GRACE_DROP_SECONDS` | `60` | Voice disconnect grace before auto-unfollow |
 | `OPS_ANNOUNCE_COOLDOWN_SECONDS` | `300` | Min seconds between error replies per (guild, user) |
 | `METRICS_SNAPSHOT_INTERVAL_SECONDS` | `300` | Periodic metrics log interval |
-
-## Docker (debug logs on the host)
-
-Create a local log directory (gitignored), then build and run:
-
-```bash
-mkdir -p logs/lavalink
-docker compose up --build
-```
-
-Detached:
-
-```bash
-docker compose up --build -d
-docker compose logs -f misarmy_talkbot
-docker compose logs -f lavalink
-```
-
-Logs are written inside the container at `/data/talkbot.log` and appear on the host as `./logs/talkbot.log`. Compose sets `LOG_LEVEL=INFO` and `LOG_FILE=/data/talkbot.log`; override via `.env` if needed.
 
 ## Docker + IDE debugger
 
