@@ -1,0 +1,56 @@
+# Production: pull the bot image from GHCR (no local build).
+#
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# On a prod host, set once so plain `docker compose up` works:
+#   export COMPOSE_FILE=docker-compose.prod.yml
+# (e.g. in ~/.bashrc or a small env file you source before deploy)
+
+services:
+  misarmy_talkbot:
+    image: ghcr.io/misdocumeno/misarmy-talkbot:latest
+    pull_policy: always
+    depends_on:
+      lavalink:
+        condition: service_healthy
+    volumes:
+      - misarmy-talkbot-config:/home/bot/config
+      - ./logs:/data
+      - audio-tmpfs:/tmp/talkbot-audio
+    env_file:
+      - .env
+    environment:
+      LOG_LEVEL: INFO
+      LOG_FILE: /data/talkbot.log
+      LAVALINK_HOST: lavalink
+      LAVALINK_PORT: "2333"
+      LAVALINK_PASSWORD: ${LAVALINK_PASSWORD:-youshallnotpass}
+      AUDIO_DIR: /tmp/talkbot-audio
+    restart: unless-stopped
+
+  lavalink:
+    image: ghcr.io/lavalink-devs/lavalink:4
+    restart: unless-stopped
+    volumes:
+      - ./lavalink/application.yml:/opt/Lavalink/application.yml:ro
+      - ./logs/lavalink:/opt/Lavalink/logs
+      - audio-tmpfs:/tmp/talkbot-audio
+    environment:
+      _JAVA_OPTIONS: "-Xmx512m"
+      SERVER_PORT: "2333"
+      LAVALINK_SERVER_PASSWORD: ${LAVALINK_PASSWORD:-youshallnotpass}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider --header=\"Authorization: $$LAVALINK_SERVER_PASSWORD\" http://localhost:2333/version || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+
+volumes:
+  misarmy-talkbot-config:
+  audio-tmpfs:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=128m,mode=1777"

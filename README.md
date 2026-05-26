@@ -38,17 +38,37 @@ playback moved out of process.
 
 I run it in a container, not directly on the host. You need a `.env` with `DISCORD_TOKEN` (see [Environment](#environment)).
 
+### Development (build bot image locally)
+
 ```bash
 mkdir -p logs/lavalink
 docker compose up --build
 ```
 
-Compose starts two services:
+### Production (pull bot from GHCR)
+
+After the image is published from `main` (see [GitHub Actions](#github-actions)):
+
+```bash
+mkdir -p logs/lavalink
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+```
+
+On the prod server, to avoid typing `-f` every time:
+
+```bash
+export COMPOSE_FILE=docker-compose.prod.yml
+```
+
+Add that to `~/.bashrc` or a small script you source before `docker compose up`. Private GHCR packages require `docker login ghcr.io` once on that host.
+
+Both compose files start two services:
 
 - `lavalink` — Java audio node (image `ghcr.io/lavalink-devs/lavalink:4`).
-- `misarmy_talkbot` — the bot itself, depends on Lavalink reporting healthy.
+- `misarmy_talkbot` — the bot (`docker-compose.yml` builds locally; `docker-compose.prod.yml` uses `ghcr.io/misdocumeno/misarmy-talkbot:latest`).
 
-Detached:
+Detached (dev):
 
 ```bash
 docker compose up --build -d
