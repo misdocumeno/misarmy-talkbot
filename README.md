@@ -50,7 +50,6 @@ docker compose up --build
 After the image is published from `main` (see [GitHub Actions](#github-actions)):
 
 ```bash
-mkdir -p logs/lavalink
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 ```
@@ -77,8 +76,8 @@ docker compose logs -f misarmy_talkbot
 
 Logs:
 
-- **Bot:** `./logs/talkbot.log` on the host (`LOG_FILE=/data/talkbot.log` in the container). Both containers also write to **stdout** (`docker compose logs -f …`), which is the usual way to tail in production.
-- **Lavalink:** rotating files under `./logs/lavalink/` on the host (Lavalink `logging.file.path`). Not mixed into the bot log file.
+- **Development:** bind-mount `./logs` (bot → `/data/talkbot.log`, Lavalink → `./logs/lavalink/`). Handy for `tail` and the VS Code debug `LOG_FILE` path.
+- **Production:** named volume `misarmy-talkbot-logs` (bot and Lavalink share it; no host `chown` — the container user owns files on first write). Tail with `docker compose logs -f …` (stdout). To read the rotating file on the volume: `docker run --rm -v <project>_misarmy-talkbot-logs:/data alpine tail -f /data/talkbot.log` (adjust volume name from `docker volume ls`).
 
 ## Development
 

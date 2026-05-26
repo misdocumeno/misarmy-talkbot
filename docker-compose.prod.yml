@@ -16,7 +16,7 @@ services:
         condition: service_healthy
     volumes:
       - misarmy-talkbot-config:/home/bot/config
-      - ./logs:/data
+      - misarmy-talkbot-logs:/data
       - audio-tmpfs:/tmp/talkbot-audio
     env_file:
       - .env
@@ -34,7 +34,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./lavalink/application.yml:/opt/Lavalink/application.yml:ro
-      - ./logs/lavalink:/opt/Lavalink/logs
+      - misarmy-talkbot-logs:/opt/Lavalink/logs
       - audio-tmpfs:/tmp/talkbot-audio
     environment:
       _JAVA_OPTIONS: "-Xmx512m"
@@ -49,6 +49,7 @@ services:
 
 volumes:
   misarmy-talkbot-config:
+  misarmy-talkbot-logs:
   audio-tmpfs:
     driver_opts:
       type: tmpfs
