@@ -55,10 +55,12 @@
     "snok",
     "stopall",
     "talkbot",
+    "tmpfs",
     "toplevel",
     "unfollowing",
     "vencord",
     "venv",
-    "VIRTUALENVS"
+    "VIRTUALENVS",
+    "youshallnotpass"
   ]
 }
