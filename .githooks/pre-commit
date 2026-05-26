@@ -1,0 +1,26 @@
+#!/bin/sh
+# Format and lint-fix before each commit so post-save/agent formatting cannot
+# leave the tree dirty right after `git commit`.
+set -eu
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+run_ruff() {
+  if [ -x "$ROOT/.venv/bin/ruff" ]; then
+    "$ROOT/.venv/bin/ruff" "$@"
+  elif command -v poetry >/dev/null 2>&1; then
+    poetry run ruff "$@"
+  elif command -v ruff >/dev/null 2>&1; then
+    ruff "$@"
+  else
+    echo "pre-commit: ruff not found (run: poetry install)" >&2
+    exit 1
+  fi
+}
+
+run_ruff format src tests
+run_ruff check --fix src tests
+
+# Include any formatting/lint fixes in this commit.
+git add -u src tests

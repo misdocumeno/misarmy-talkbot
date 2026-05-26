@@ -25,26 +25,24 @@ def test_resolve_presence_name_uses_gettext_default() -> None:
 
 def test_presence_in_full_config() -> None:
     config = validate_config(
-        json.dumps(
-            {
-                'locale': 'en_US',
-                'defaultVoice': 'edge/en-US-BrianMultilingualNeural',
-                'replacements': {
-                    'regex': {},
-                    'emojis': {},
-                    'stickers': {},
-                    'mentions': {},
-                    'roles': {},
-                    'channels': {},
-                },
-                'voicePresets': {},
-                'localeOverrides': {},
-                'presence': {
-                    'type': 'listening',
-                    'name': 'TTS · /help',
-                },
-            }
-        )
+        json.dumps({
+            'locale': 'en_US',
+            'defaultVoice': 'edge/en-US-BrianMultilingualNeural',
+            'replacements': {
+                'regex': {},
+                'emojis': {},
+                'stickers': {},
+                'mentions': {},
+                'roles': {},
+                'channels': {},
+            },
+            'voicePresets': {},
+            'localeOverrides': {},
+            'presence': {
+                'type': 'listening',
+                'name': 'TTS · /help',
+            },
+        })
     )
     assert config.presence.type == 'listening'
     assert config.presence.name == 'TTS · /help'

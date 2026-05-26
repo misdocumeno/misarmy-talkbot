@@ -67,6 +67,7 @@ Clone the repo, create `.env`, then install tooling with [Poetry](https://python
 | Task | Command |
 |------|---------|
 | Install | `poetry install` |
+| Install git hooks (format before commit) | `sh scripts/install-githooks.sh` |
 | Format + fix imports | `poetry run ruff format src tests && poetry run ruff check --fix src tests` |
 | Lint | `poetry run ruff check src tests` |
 | Typecheck | `poetry run pyright src tests` |

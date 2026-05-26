@@ -52,7 +52,10 @@ def _compile_custom_locales(locales_dir: Path) -> None:
         mo_path = locale_dir / 'LC_MESSAGES' / 'messages.mo'
         if not po_path.exists():
             continue
-        if mo_path.exists() and mo_path.stat().st_mtime >= po_path.stat().st_mtime:
+        if (
+            mo_path.exists()
+            and mo_path.stat().st_mtime >= po_path.stat().st_mtime
+        ):
             continue
 
         mo_path.parent.mkdir(parents=True, exist_ok=True)
@@ -73,7 +76,9 @@ def _compile_custom_locales(locales_dir: Path) -> None:
             )
 
 
-def _discover_custom_locales(locales_dir: Path) -> tuple[list[str], dict[str, str]]:
+def _discover_custom_locales(
+    locales_dir: Path,
+) -> tuple[list[str], dict[str, str]]:
     """Return custom locale codes and optional fallback map.
 
     If ``config/locales/<name>/fallback`` exists, its contents are treated as a
@@ -111,7 +116,9 @@ def _discover_custom_locales(locales_dir: Path) -> tuple[list[str], dict[str, st
 
 
 _compile_custom_locales(_CUSTOM_LOCALES_DIR)
-_CUSTOM_LOCALES, _CUSTOM_FALLBACKS = _discover_custom_locales(_CUSTOM_LOCALES_DIR)
+_CUSTOM_LOCALES, _CUSTOM_FALLBACKS = _discover_custom_locales(
+    _CUSTOM_LOCALES_DIR
+)
 
 supported_locales = [*_BUNDLED_LOCALES, *_CUSTOM_LOCALES]
 

@@ -116,7 +116,9 @@ class LavalinkSession:
         else:
             logger.info('lavalink_disconnected guild_id=%s', self.guild_id)
 
-    async def play_track(self, player: wavelink.Player, track: wavelink.Playable) -> None:
+    async def play_track(
+        self, player: wavelink.Player, track: wavelink.Playable
+    ) -> None:
         """Start playback with a Lavalink-safe update payload.
 
         ``wavelink.Player.play()`` always sends default equalizer bands. Our
@@ -129,7 +131,9 @@ class LavalinkSession:
 
         if not player.connected:
             try:
-                await asyncio.wait_for(player._connection_event.wait(), timeout=10.0)
+                await asyncio.wait_for(
+                    player._connection_event.wait(), timeout=10.0
+                )
             except TimeoutError as exc:
                 raise RuntimeError('lavalink player not connected') from exc
 
