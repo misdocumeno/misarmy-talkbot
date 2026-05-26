@@ -1,0 +1,30 @@
+# Secrets and runtime config (mounted at run time, never baked into the image)
+.env
+.env.*
+!.env.example
+
+config/
+
+# Local / dev-only
+.venv/
+.git/
+.github/
+.devcontainer/
+.vscode/
+.githooks/
+scripts/install-githooks.sh
+
+# Logs and caches
+logs/
+*.log
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
+
+# Not needed inside the bot image
+tests/
+TODO.md
+docker-compose*.yml
+lavalink/
+*.md

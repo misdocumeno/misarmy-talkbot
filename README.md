@@ -95,7 +95,7 @@ Clone the repo, copy `.env.example` to `.env`, then install tooling with [Poetry
 
 **Ruff** (`ruff.toml`): format (79 cols, single quotes, preview) + lint (Ruff defaults plus strict annotations). **Pyright** (`pyrightconfig.json`, strict): real type checking in the editor (via a Pyright-based language server) and on the CLI.
 
-Production images install dependencies at build time and run `python -m misarmy_talkbot` (no Poetry at runtime). See `Dockerfile`.
+Production images install dependencies at build time and run `python -m misarmy_talkbot` (no Poetry at runtime). See `Dockerfile`. `.dockerignore` keeps `.env`, `config/`, and other local-only paths out of the build context even if they exist on disk.
 
 ### GitHub Actions
 
