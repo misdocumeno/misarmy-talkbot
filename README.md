@@ -124,6 +124,28 @@ Omit `name` (or omit `presence` entirely) to use the translated default. You can
 
 After editing `global.jsonc`, restart the bot (or rely on the next boot load in `first_boot`) for presence to refresh.
 
+### Custom locales (production-friendly)
+
+If you want to maintain a custom translation without rebuilding the image, add a
+new locale under the mounted config directory:
+
+```
+config/locales/<your-locale>/LC_MESSAGES/messages.po
+```
+
+On startup, the container compiles `messages.po` → `messages.mo` (requires
+`msgfmt`, shipped in the image) and adds `<your-locale>` to `/locales`.
+
+Optional: add a fallback chain so you only need to translate the strings you
+care about:
+
+```
+config/locales/<your-locale>/fallback
+```
+
+Put a base locale code in that file (e.g. `es_AR`), and missing strings will
+fall back to the base locale.
+
 ## Environment
 
 | Variable | Default | Description |

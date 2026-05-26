@@ -16,7 +16,7 @@ FROM python:3.12-slim-bookworm
 # pass per Google TTS message). Lavalink (separate container) is what actually
 # decodes and transmits audio to Discord.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg \
+    && apt-get install -y --no-install-recommends ffmpeg gettext \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

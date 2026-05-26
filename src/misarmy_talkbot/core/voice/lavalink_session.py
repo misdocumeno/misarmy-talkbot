@@ -17,7 +17,6 @@ from misarmy_talkbot.observability.logger import logger
 
 if TYPE_CHECKING:
     from discord.ext import commands
-
     from wavelink.types.request import Request as LavalinkRequest
 
 
