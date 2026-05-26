@@ -1,7 +1,11 @@
 name: Publish Docker image (GHCR)
 
+# Runs only after CI succeeds on a push to main (not in parallel).
+# Manual runs (workflow_dispatch) are still allowed.
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
   workflow_dispatch: {}
 
@@ -12,9 +16,15 @@ permissions:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Install gettext (msgfmt)
         run: sudo apt-get update && sudo apt-get install -y gettext
