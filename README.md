@@ -77,6 +77,15 @@ Clone the repo, create `.env`, then install tooling with [Poetry](https://python
 
 Production images install dependencies at build time and run `python -m misarmy_talkbot` (no Poetry at runtime). See `Dockerfile`.
 
+### GitHub Actions
+
+| Workflow | When it runs | What it does |
+|----------|----------------|--------------|
+| **CI** | Pull requests and pushes to `main` | `ruff format --check`, `ruff check`, `pyright`, `pytest` |
+| **Publish Docker image (GHCR)** | Push to `main` only | Builds the image and pushes to `ghcr.io/<owner>/<repo>` |
+
+Opening a pull request from your feature branch into `main` runs **CI** on GitHub before you merge. Merging and pushing `main` runs **CI** again, then **Publish** builds the container image.
+
 ### Dev container (optional)
 
 For editing and running tools inside a consistent Linux environment (Poetry, ffmpeg, Ruff, Pyright), open the repo in a [Dev Container](https://containers.dev/): **Cursor / VS Code** command palette → **Dev Containers: Reopen in Container**. Uses `.devcontainer/` only; production `Dockerfile` and `docker compose` are unchanged.
