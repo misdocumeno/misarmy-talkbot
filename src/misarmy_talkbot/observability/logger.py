@@ -65,23 +65,30 @@ def setup_logging() -> logging.Logger:
 
     path = os.getenv('LOG_FILE', '').strip()
     if path:
-        os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
-        fh = RotatingFileHandler(
-            path,
-            maxBytes=_parse_max_bytes(
-                os.getenv('LOG_FILE_MAX_BYTES', '52428800')
-            ),
-            backupCount=int(os.getenv('LOG_FILE_BACKUP_COUNT', '5')),
-            encoding='utf-8',
-        )
-        fh.setLevel(logging.DEBUG)
-        fh.setFormatter(
-            logging.Formatter(
-                '%(asctime)s %(levelname)-8s %(name)s.%(module)s %(message)s',
-                '%Y-%m-%d %H:%M:%S',
+        try:
+            os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
+            fh = RotatingFileHandler(
+                path,
+                maxBytes=_parse_max_bytes(
+                    os.getenv('LOG_FILE_MAX_BYTES', '52428800')
+                ),
+                backupCount=int(os.getenv('LOG_FILE_BACKUP_COUNT', '5')),
+                encoding='utf-8',
             )
-        )
-        lg.addHandler(fh)
+            fh.setLevel(logging.DEBUG)
+            fh.setFormatter(
+                logging.Formatter(
+                    '%(asctime)s %(levelname)-8s %(name)s.%(module)s %(message)s',
+                    '%Y-%m-%d %H:%M:%S',
+                )
+            )
+            lg.addHandler(fh)
+        except OSError as exc:
+            lg.warning(
+                'LOG_FILE disabled (%s): %s — using stderr only',
+                path,
+                exc,
+            )
 
     discord.player._log.setLevel(logging.WARNING)
     _setup_done = True

@@ -77,7 +77,7 @@ docker compose logs -f misarmy_talkbot
 Logs:
 
 - **Development:** bind-mount `./logs` (bot → `/data/talkbot.log`, Lavalink → `./logs/lavalink/`). Handy for `tail` and the VS Code debug `LOG_FILE` path.
-- **Production:** named volume `misarmy-talkbot-logs` (bot and Lavalink share it; no host `chown` — the container user owns files on first write). Tail with `docker compose logs -f …` (stdout). To read the rotating file on the volume: `docker run --rm -v <project>_misarmy-talkbot-logs:/data alpine tail -f /data/talkbot.log` (adjust volume name from `docker volume ls`).
+- **Production:** named volumes `misarmy-talkbot-logs` (bot only) and `misarmy-talkbot-lavalink-logs` (Lavalink only). Do not share one volume: Lavalink runs as root and would make the bot’s `/data` unwritable. Tail with `docker compose logs -f …` (stdout). Bot file log: `docker run --rm -v <project>_misarmy-talkbot-logs:/data alpine tail -f /data/talkbot.log`.
 
 ## Development
 
