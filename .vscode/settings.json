@@ -52,6 +52,7 @@
     "PYTHONPATH",
     "pyupgrade",
     "sessionmaker",
+    "snok",
     "stopall",
     "talkbot",
     "toplevel",
