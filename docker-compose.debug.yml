@@ -1,0 +1,23 @@
+# Debug overlay: use with the base compose file.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build
+#
+# debugpy opens a non-blocking attach port after login (never waits for a debugger).
+# Attach with F5 -> "Docker: Attach to Talkbot" whenever you want; the bot keeps running.
+
+services:
+  misarmy_talkbot:
+    volumes:
+      - ./src/misarmy_talkbot:/home/bot/src/misarmy_talkbot
+    environment:
+      LOG_LEVEL: DEBUG
+      LOG_FILE: /data/talkbot.log
+      ENABLE_DEBUGPY: "1"
+      DEBUGPY_PORT: "5678"
+    ports:
+      - "5678:5678"
+    restart: "no"
+
+  lavalink:
+    volumes:
+      - ./lavalink/application.debug.yml:/opt/Lavalink/application.yml:ro

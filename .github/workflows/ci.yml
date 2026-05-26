@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: 2.2.1
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Install dependencies
+        run: poetry install --no-interaction
+
+      - name: Install gettext (msgfmt)
+        run: sudo apt-get update && sudo apt-get install -y gettext
+
+      - name: Compile bundled locales (.po -> .mo)
+        run: poetry run python src/misarmy_talkbot/infra/locale/compile.py
+
+      - name: Ruff format (check)
+        run: poetry run ruff format --check src tests
+
+      - name: Ruff lint
+        run: poetry run ruff check src tests
+
+      - name: Pyright
+        run: poetry run pyright src tests
+
+      - name: Pytest
+        run: poetry run pytest

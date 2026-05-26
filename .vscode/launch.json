@@ -1,29 +1,36 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
-    "version": "0.2.0",
-    "configurations": [
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Docker: Attach to Talkbot",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": {
+        "host": "127.0.0.1",
+        "port": 5678
+      },
+      "pathMappings": [
         {
-            "name": "Python Debugger: Module",
-            "type": "debugpy",
-            "request": "launch",
-            "module": "misarmy_talkbot"
-        },
-        {
-            "name": "Python: Attach to Remote Bot",
-            "type": "debugpy",
-            "request": "attach",
-            "connect": {
-                "host": "192.168.100.200",
-                "port": 5678
-            },
-            "pathMappings": [
-                {
-                    "localRoot": "${workspaceFolder}/misarmy_talkbot",
-                    "remoteRoot": "/home/bot/misarmy_talkbot"
-                }
-            ]
+          "localRoot": "${workspaceFolder}/src/misarmy_talkbot",
+          "remoteRoot": "/home/bot/src/misarmy_talkbot"
         }
-    ]
+      ],
+      "justMyCode": false
+    },
+    {
+      "name": "Local: Run module (.env)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "misarmy_talkbot",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src",
+        "LOG_LEVEL": "DEBUG",
+        "LOG_FILE": "${workspaceFolder}/logs/talkbot.log",
+        "FORENSICS_ENABLED": "true"
+      },
+      "justMyCode": false
+    }
+  ]
 }

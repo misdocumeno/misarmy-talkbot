@@ -1,18 +1,22 @@
+# Production: pull the bot image from GHCR (no local build).
+#
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# On a prod host, set once so plain `docker compose up` works:
+#   export COMPOSE_FILE=docker-compose.prod.yml
+# (e.g. in ~/.bashrc or a small env file you source before deploy)
+
 services:
   misarmy_talkbot:
-    image: misarmy_talkbot
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/misdocumeno/misarmy-talkbot:latest
+    pull_policy: always
     depends_on:
       lavalink:
         condition: service_healthy
     volumes:
       - misarmy-talkbot-config:/home/bot/config
-      # Host ./logs -> container /data (rotating log file at /data/talkbot.log)
       - ./logs:/data
-      # Shared transient audio (tmpfs); same path inside the Lavalink container
-      # so Lavalink can load TTS files by absolute path without an HTTP server.
       - audio-tmpfs:/tmp/talkbot-audio
     env_file:
       - .env
@@ -37,7 +41,6 @@ services:
       SERVER_PORT: "2333"
       LAVALINK_SERVER_PASSWORD: ${LAVALINK_PASSWORD:-youshallnotpass}
     healthcheck:
-      # HEAD /version — not logged when logging.request.enabled is false.
       test: ["CMD-SHELL", "wget -q --spider --header=\"Authorization: $$LAVALINK_SERVER_PASSWORD\" http://localhost:2333/version || exit 1"]
       interval: 5s
       timeout: 3s

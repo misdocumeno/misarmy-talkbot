@@ -1,0 +1,33 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "format",
+      "type": "shell",
+      "command": "poetry run ruff format src tests && poetry run ruff check --fix src tests",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "lint",
+      "type": "shell",
+      "command": "poetry run ruff check src tests",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "typecheck",
+      "type": "shell",
+      "command": "poetry run pyright src tests",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "test",
+      "type": "shell",
+      "command": "poetry run pytest -q",
+      "group": "test",
+      "problemMatcher": []
+    }
+  ]
+}

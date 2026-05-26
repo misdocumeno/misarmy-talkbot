@@ -1,0 +1,47 @@
+# Single source of truth for CLI and IDE (Ruff extension → ruff.toml).
+line-length = 79
+target-version = "py312"
+src = ["src", "tests"]
+
+[lint]
+# Ruff defaults: E4, E7, E9, F — extend with stricter rules (do not replace defaults).
+extend-select = [
+    "I",       # isort
+    "B",       # flake8-bugbear
+    "UP",      # pyupgrade
+    "ANN",     # annotations on all functions (incl. private, *args, **kwargs)
+    "TCH",     # TYPE_CHECKING imports for type-only deps
+    "RUF013",  # no implicit Optional (x: str = None)
+    "ARG",     # unused parameters
+]
+ignore = [
+    # Formatter emits trailing commas on multiline collections; do not lint-fix them.
+    "COM812",
+    # ANN401 forbids `Any` in annotations; we require annotations everywhere and allow
+    # explicit `Any` when a narrower type is not practical (logging, discord stubs).
+    "ANN401",
+]
+
+[lint.pycodestyle]
+# PEP 8: docstrings and comment-only lines may be narrower than code (72 vs 79).
+max-doc-length = 72
+
+[lint.flake8-annotations]
+allow-star-arg-any = false
+mypy-init-return = false
+suppress-dummy-args = false
+suppress-none-returning = false
+
+[lint.flake8-type-checking]
+strict = true
+
+[lint.isort]
+known-first-party = ["misarmy_talkbot"]
+
+[format]
+quote-style = "single"
+indent-style = "space"
+line-ending = "lf"
+skip-magic-trailing-comma = false
+preview = true
+docstring-code-line-length = 72
