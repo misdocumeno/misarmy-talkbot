@@ -50,6 +50,7 @@
     "pyrightconfig",
     "pytest",
     "PYTHONPATH",
+    "PYTHONUNBUFFERED",
     "pyupgrade",
     "sessionmaker",
     "snok",
