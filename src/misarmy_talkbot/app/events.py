@@ -21,12 +21,12 @@ from misarmy_talkbot.core.session.registry import GuildSessionRegistry
 from misarmy_talkbot.infra.audio_storage import AudioStorage
 from misarmy_talkbot.infra.config.command import on_config_mention
 from misarmy_talkbot.infra.config.config import (
-    apply_global_presence,
     default_config,
     get_config_json,
     set_default_config,
     update_config,
 )
+from misarmy_talkbot.infra.config.presence import apply_global_presence
 from misarmy_talkbot.infra.database.database import create_tables
 from misarmy_talkbot.observability.debugpy_boot import start_debugpy_if_enabled
 from misarmy_talkbot.observability.logger import logger

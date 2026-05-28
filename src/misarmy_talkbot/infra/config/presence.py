@@ -1,4 +1,4 @@
-"""Map validated config presence to discord.py activities."""
+"""Bot sidebar activity (Rich Presence): gettext + defaults, not JSON config."""
 
 from __future__ import annotations
 
@@ -6,6 +6,10 @@ from typing import Literal
 
 import discord
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+from misarmy_talkbot.infra.locale.context import LocaleContext
+from misarmy_talkbot.infra.locale.translations import global_locale, translate
+from misarmy_talkbot.observability.logger import logger
 
 _PRESENCE_TYPES = Literal[
     'playing', 'listening', 'watching', 'competing', 'streaming'
@@ -21,7 +25,7 @@ _TYPE_TO_ACTIVITY: dict[_PRESENCE_TYPES, discord.ActivityType] = {
 
 
 class PresenceConfig(BaseModel):
-    """Sidebar subtitle shown for the bot (Rich Presence activity)."""
+    """Runtime defaults for the bot activity (not loaded from ``global.jsonc``)."""
 
     type: _PRESENCE_TYPES = 'playing'
     name: str | None = Field(default=None, max_length=128)
@@ -54,25 +58,35 @@ class PresenceConfig(BaseModel):
         return self
 
 
-def resolve_presence_name(
-    presence: PresenceConfig, guild: discord.Guild | None = None
-) -> str:
-    """Config ``name`` overrides; otherwise gettext ``presence_default_name``."""
+def resolve_presence_name(presence: PresenceConfig) -> str:
+    """Literal ``name`` or gettext ``presence_default_name`` (``LANG`` / ``--locale``)."""
     if presence.name is not None:
         return presence.name
-    from misarmy_talkbot.infra.locale.i18n import translate
+    return translate(
+        'presence_default_name',
+        context=LocaleContext(locale=global_locale, overrides={}),
+    )
 
-    return translate('presence_default_name', guild)
 
-
-def build_presence_activity(
-    presence: PresenceConfig, *, guild: discord.Guild | None = None
-) -> discord.Activity:
-    """Build a discord.py Activity from validated config."""
+def build_presence_activity(presence: PresenceConfig) -> discord.Activity:
+    """Build a discord.py Activity from validated defaults."""
     kwargs: dict[str, object] = {
         'type': _TYPE_TO_ACTIVITY[presence.type],
-        'name': resolve_presence_name(presence, guild),
+        'name': resolve_presence_name(presence),
     }
     if presence.type == 'streaming' and presence.url is not None:
         kwargs['url'] = presence.url
     return discord.Activity(**kwargs)
+
+
+async def apply_global_presence(bot: discord.Client) -> None:
+    """Set bot sidebar activity from gettext (``presence_default_name``)."""
+    presence = PresenceConfig()
+    activity = build_presence_activity(presence)
+    await bot.change_presence(activity=activity)
+    logger.info(
+        'presence_applied type=%s name=%r locale=%r',
+        presence.type,
+        activity.name,
+        global_locale,
+    )

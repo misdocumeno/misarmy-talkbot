@@ -132,24 +132,13 @@ Config is JSONC on disk (comments allowed), validated at load time with Pydantic
 | `config/guilds/<guild_id>.jsonc` | Per-guild overrides (optional; created via `/config`) |
 | [`src/misarmy_talkbot/infra/config/default_config.jsonc`](src/misarmy_talkbot/infra/config/default_config.jsonc) | Shipped template returned by `/config default` |
 
-**Presence** (global only): sidebar subtitle under the bot name.
+**Presence** (sidebar subtitle): not stored in `global.jsonc`. The bot uses gettext id `presence_default_name` from the active process locale (`LANG` or `--locale`, e.g. `es_AR`). Edit bundled `src/misarmy_talkbot/infra/locale/*/LC_MESSAGES/messages.po`, or add `config/locales/<locale>/LC_MESSAGES/messages.po` on the config volume (see below). Restart the bot after changing locale files.
 
-- **Default text** comes from the gettext id `presence_default_name` in bundled locale files (`src/misarmy_talkbot/infra/locale/*/LC_MESSAGES/messages.po`). Edit and recompile `.mo` (or use a custom locale under `config/locales/`) to change the default line.
-- **Per-guild / global string override** without editing `.po`: `localeOverrides` with key `presence_default_name` in `global.jsonc` or a guild config.
-- **Optional** `presence` block in `global.jsonc` only if you need a non-translated custom `name`, a non-default `type`, or `streaming` + `url`:
+**Slash command descriptions** use the same process locale at startup; run `/sync` after changing `LANG`.
 
-```jsonc
-"presence": {
-  "type": "playing",
-  "name": "Literal sidebar text (skips gettext)"
-}
-```
+**`global.jsonc` `locale` field**: default for per-guild TTS/messages (`guild_preferred` or a fixed code). It does **not** set slash text or presence — use `LANG` for that.
 
-Omit `presence` entirely for translated default + `type: playing`. `type` values: `playing`, `listening`, `watching`, `competing`, `streaming` (`url` required for streaming).
-
-**localeOverrides**: map gettext message ids to custom strings for that guild (or global). See `localeOverrides` in the default config template.
-
-Restart the bot after changing `global.jsonc` or locale files so presence reloads on the next boot.
+**localeOverrides** (in a guild config from `/config`): per-guild gettext overrides for bot messages. See `localeOverrides` in the default config template.
 
 ### Custom locales (production-friendly)
 
@@ -186,6 +175,7 @@ fall back to the base locale.
 | `AUDIO_JANITOR_INTERVAL_SECONDS` | `120` | Janitor sweep interval |
 | `TTS_MAX_CONCURRENT` | `4` | Per-guild bound on concurrent TTS generation tasks |
 | `LOG_LEVEL` | `INFO` | stderr log level (bot) |
+| `LANG` | `en_US` (bundled) | Gettext locale for slash descriptions and presence (`es_AR`, custom codes under `config/locales/`, …) |
 | `GRACE_DROP_SECONDS` | `60` | Voice disconnect grace before auto-unfollow |
 | `OPS_ANNOUNCE_COOLDOWN_SECONDS` | `300` | Min seconds between error replies per (guild, user) |
 | `METRICS_SNAPSHOT_INTERVAL_SECONDS` | `300` | Periodic metrics log interval |

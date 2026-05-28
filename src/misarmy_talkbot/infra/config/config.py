@@ -6,7 +6,6 @@ import discord
 import json5
 from pydantic import BaseModel, Field
 
-from misarmy_talkbot.infra.config.presence import PresenceConfig
 from misarmy_talkbot.infra.locale import translations
 from misarmy_talkbot.infra.locale.context import LocaleContext
 from misarmy_talkbot.observability.logger import logger
@@ -34,7 +33,6 @@ class GuildConfig(BaseModel):
     replacements: ReplacementsSection
     voice_presets: dict[str, VoicePreset] = Field(..., alias='voicePresets')
     locale_overrides: dict[str, str] = Field(..., alias='localeOverrides')
-    presence: PresenceConfig = Field(default_factory=PresenceConfig)
 
 
 with Path(__file__).with_name('default_config.jsonc').open() as f:
@@ -97,19 +95,6 @@ async def get_config_json(guild: discord.Guild | None = None) -> str | None:
     if await aiofiles.os.path.exists(path):
         async with aiofiles.open(path) as f:
             return await f.read()
-
-
-async def apply_global_presence(bot: discord.Client) -> None:
-    """Set bot sidebar activity from ``global_config.presence``."""
-    from misarmy_talkbot.infra.config.presence import build_presence_activity
-
-    activity = build_presence_activity(global_config.presence, guild=None)
-    await bot.change_presence(activity=activity)
-    logger.info(
-        'presence_applied type=%s name=%r',
-        global_config.presence.type,
-        activity.name,
-    )
 
 
 async def update_config(json: str, guild: discord.Guild | None = None) -> None:
