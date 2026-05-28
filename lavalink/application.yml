@@ -52,9 +52,6 @@ sentry:
   environment: ""
 
 logging:
-  file:
-    path: ./logs/
-
   level:
     root: INFO
     lavalink: INFO
@@ -64,8 +61,3 @@ logging:
   # via docker-compose.debug.yml when debugging Lavalink REST traffic.
   request:
     enabled: false
-
-  logback:
-    rollingpolicy:
-      max-file-size: 10MB
-      max-history: 5

@@ -16,13 +16,11 @@ services:
         condition: service_healthy
     volumes:
       - misarmy-talkbot-config:/home/bot/config
-      - misarmy-talkbot-logs:/data
       - audio-tmpfs:/tmp/talkbot-audio
     env_file:
       - .env
     environment:
       LOG_LEVEL: INFO
-      LOG_FILE: /data/talkbot.log
       LAVALINK_HOST: lavalink
       LAVALINK_PORT: "2333"
       LAVALINK_PASSWORD: ${LAVALINK_PASSWORD:-youshallnotpass}
@@ -34,7 +32,6 @@ services:
     restart: unless-stopped
     volumes:
       - ./lavalink/application.yml:/opt/Lavalink/application.yml:ro
-      - misarmy-talkbot-lavalink-logs:/opt/Lavalink/logs
       - audio-tmpfs:/tmp/talkbot-audio
     environment:
       _JAVA_OPTIONS: "-Xmx512m"
@@ -49,8 +46,6 @@ services:
 
 volumes:
   misarmy-talkbot-config:
-  misarmy-talkbot-logs:
-  misarmy-talkbot-lavalink-logs:
   audio-tmpfs:
     driver_opts:
       type: tmpfs

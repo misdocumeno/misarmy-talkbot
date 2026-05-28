@@ -27,7 +27,6 @@
       "env": {
         "PYTHONPATH": "${workspaceFolder}/src",
         "LOG_LEVEL": "DEBUG",
-        "LOG_FILE": "${workspaceFolder}/logs/talkbot.log",
         "FORENSICS_ENABLED": "true"
       },
       "justMyCode": false

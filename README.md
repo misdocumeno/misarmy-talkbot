@@ -41,7 +41,6 @@ I run it in a container, not directly on the host. Copy [`.env.example`](.env.ex
 ### Development (build bot image locally)
 
 ```bash
-mkdir -p logs/lavalink
 docker compose up --build
 ```
 
@@ -74,10 +73,9 @@ docker compose up --build -d
 docker compose logs -f misarmy_talkbot
 ```
 
-Logs:
+Logs (development and production): everything goes to **stdout/stderr** — bot and Lavalink. Tail with `docker compose logs -f misarmy_talkbot` or `docker compose logs -f lavalink`. No log files, bind mounts, or log volumes.
 
-- **Development:** bind-mount `./logs` (bot → `/data/talkbot.log`, Lavalink → `./logs/lavalink/`). Handy for `tail` and the VS Code debug `LOG_FILE` path.
-- **Production:** named volumes `misarmy-talkbot-logs` (bot only) and `misarmy-talkbot-lavalink-logs` (Lavalink only). Do not share one volume: Lavalink runs as root and would make the bot’s `/data` unwritable. Tail with `docker compose logs -f …` (stdout). Bot file log: `docker run --rm -v <project>_misarmy-talkbot-logs:/data alpine tail -f /data/talkbot.log`.
+Config volume (`misarmy-talkbot-config`): the image creates `/home/bot/config` as user `bot` so Docker copies **uid 1000** ownership into a **new** volume on first use. If a volume was already created with an older image (root-owned), remove only that volume once (`docker compose down`, `docker volume rm <project>_misarmy-talkbot-config`, restore `config/` from backup, `up -d`).
 
 ## Development
 
@@ -187,10 +185,7 @@ fall back to the base locale.
 | `AUDIO_TTL_SECONDS` | `600` | Janitor TTL for orphaned audio files |
 | `AUDIO_JANITOR_INTERVAL_SECONDS` | `120` | Janitor sweep interval |
 | `TTS_MAX_CONCURRENT` | `4` | Per-guild bound on concurrent TTS generation tasks |
-| `LOG_LEVEL` | `INFO` | Terminal log level |
-| `LOG_FILE` | (empty) | If set, rotating DEBUG log path (e.g. `/data/talkbot.log` in Docker) |
-| `LOG_FILE_MAX_BYTES` | `52428800` | Rotation size (bytes; supports `50MiB` style) |
-| `LOG_FILE_BACKUP_COUNT` | `5` | Rotated file count |
+| `LOG_LEVEL` | `INFO` | stderr log level (bot) |
 | `GRACE_DROP_SECONDS` | `60` | Voice disconnect grace before auto-unfollow |
 | `OPS_ANNOUNCE_COOLDOWN_SECONDS` | `300` | Min seconds between error replies per (guild, user) |
 | `METRICS_SNAPSHOT_INTERVAL_SECONDS` | `300` | Periodic metrics log interval |
@@ -200,7 +195,6 @@ fall back to the base locale.
 Debug overlay (bind-mounts source, enables debugpy, DEBUG logs):
 
 ```bash
-mkdir -p logs/lavalink
 docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build
 ```
 

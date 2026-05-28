@@ -1,27 +1,16 @@
 import logging
 import os
 import sys
-from logging.handlers import RotatingFileHandler
 
 import colorlog
 import discord
-
-
-def _parse_max_bytes(raw: str) -> int:
-    raw = raw.strip().upper().replace('_', '').replace(' ', '')
-    if raw.endswith('MIB'):
-        return int(raw[:-3]) * 1024 * 1024
-    if raw.endswith('MB'):
-        return int(raw[:-2]) * 1000 * 1000
-    return int(raw)
-
 
 _setup_done = False
 
 
 def setup_logging() -> logging.Logger:
     """
-    Stderr/colored INFO (override via LOG_LEVEL / CLI fallback) + rotating file at DEBUG when LOG_FILE is set.
+    Colored logs to stderr (level from LOG_LEVEL env or CLI fallback).
     Safe to call more than once; duplicate handlers avoided.
     """
     global _setup_done  # noqa: PLW0603 — module bootstrap
@@ -62,33 +51,6 @@ def setup_logging() -> logging.Logger:
         )
     )
     lg.addHandler(stderr)
-
-    path = os.getenv('LOG_FILE', '').strip()
-    if path:
-        try:
-            os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
-            fh = RotatingFileHandler(
-                path,
-                maxBytes=_parse_max_bytes(
-                    os.getenv('LOG_FILE_MAX_BYTES', '52428800')
-                ),
-                backupCount=int(os.getenv('LOG_FILE_BACKUP_COUNT', '5')),
-                encoding='utf-8',
-            )
-            fh.setLevel(logging.DEBUG)
-            fh.setFormatter(
-                logging.Formatter(
-                    '%(asctime)s %(levelname)-8s %(name)s.%(module)s %(message)s',
-                    '%Y-%m-%d %H:%M:%S',
-                )
-            )
-            lg.addHandler(fh)
-        except OSError as exc:
-            lg.warning(
-                'LOG_FILE disabled (%s): %s — using stderr only',
-                path,
-                exc,
-            )
 
     discord.player._log.setLevel(logging.WARNING)
     _setup_done = True

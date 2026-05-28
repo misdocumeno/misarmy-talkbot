@@ -11,7 +11,6 @@ services:
       - ./src/misarmy_talkbot:/home/bot/src/misarmy_talkbot
     environment:
       LOG_LEVEL: DEBUG
-      LOG_FILE: /data/talkbot.log
       ENABLE_DEBUGPY: "1"
       DEBUGPY_PORT: "5678"
     ports:
