@@ -24,8 +24,6 @@ RUN useradd -m bot
 
 WORKDIR /home/bot
 
-RUN mkdir -p /home/bot/config
-
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/home/bot/src
 ENV PATH=/home/bot/.venv/bin:$PATH
@@ -33,7 +31,12 @@ ENV PATH=/home/bot/.venv/bin:$PATH
 COPY --from=builder /app/.venv /home/bot/.venv
 COPY --from=builder /app/src/misarmy_talkbot /home/bot/src/misarmy_talkbot
 
+RUN chown -R bot:bot /home/bot
+
 USER bot
+
+# Owned by bot so a new named config volume inherits uid 1000 on first mount.
+RUN mkdir -p /home/bot/config
 
 ENTRYPOINT ["python", "-m", "misarmy_talkbot"]
 CMD []
