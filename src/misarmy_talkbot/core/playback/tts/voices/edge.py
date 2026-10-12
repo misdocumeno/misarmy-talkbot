@@ -1,8 +1,19 @@
 import io
 
 import edge_tts
+import edge_tts.communicate as edge_communicate
+from edge_tts.constants import TRUSTED_CLIENT_TOKEN
 
 from misarmy_talkbot.observability.logger import logger
+
+# speech.platform.bing.com now returns 403 on the synthesis socket.
+# Edge speaks through api.msedgeservices.com, which still accepts the
+# token shipped with edge-tts 7.2.8 (the latest release). Drop this
+# once https://github.com/rany2/edge-tts/pull/491 is published.
+edge_communicate.WSS_URL = (
+    'wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1'
+    f'?Ocp-Apim-Subscription-Key={TRUSTED_CLIENT_TOKEN}'
+)
 
 
 async def generate_edge_tts(
