@@ -15,6 +15,22 @@ if TYPE_CHECKING:
     from discord.ext import commands
 
 
+async def drop_follower(
+    bot: commands.Bot, guild_id: int, user_id: int
+) -> None:
+    """Unfollow ``user_id``; dispose the session if nobody is left, else re-sync.
+
+    Every path that removes a follower must end here so the bot never stays in
+    voice with a session whose follow set is already empty.
+    """
+    follow_registry = FollowRegistry.instance()
+    follow_registry.unfollow(guild_id, user_id)
+    if not follow_registry.is_tracked(guild_id):
+        await GuildSessionRegistry.instance().dispose(guild_id)
+        return
+    await reconcile_master_channel(bot, guild_id)
+
+
 async def reconcile_master_channel(bot: commands.Bot, guild_id: int) -> None:
     """Move the bot into the master's current voice channel, or unfollow if impossible.
 
@@ -41,5 +57,4 @@ async def reconcile_master_channel(bot: commands.Bot, guild_id: int) -> None:
         master_member.voice.channel.id
     )
     if isinstance(error, PermissionError):
-        follow_registry.unfollow(guild_id, master_user_id)
-        await reconcile_master_channel(bot, guild_id)
+        await drop_follower(bot, guild_id, master_user_id)

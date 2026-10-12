@@ -99,6 +99,36 @@ async def test_play_one_loads_track_and_completes_on_track_end(
 
 
 @pytest.mark.asyncio
+async def test_master_in_grace_window_still_speaks_in_current_channel(
+    engine_setup: tuple[PlaybackEngine, FakeLavalinkSession, MetricsRegistry],
+) -> None:
+    engine, lavalink, _metrics = engine_setup
+    engine._master_voice_channel = lambda: None  # type: ignore[method-assign]
+    audio = ready_audio_message()
+    await engine._queue.put(audio)
+    fake_track = MagicMock(name='track')
+
+    async def fake_fetch(_query: str, *, node: object = None) -> list[object]:
+        _ = node
+        return [fake_track]
+
+    import wavelink
+
+    original_fetch = wavelink.Pool.fetch_tracks
+    wavelink.Pool.fetch_tracks = fake_fetch  # type: ignore[assignment]
+    try:
+        play_task = asyncio.create_task(engine._play_one(audio))
+        await asyncio.sleep(0.05)
+        engine.on_track_end(MagicMock())
+        await asyncio.wait_for(play_task, timeout=1.0)
+    finally:
+        wavelink.Pool.fetch_tracks = original_fetch  # type: ignore[assignment]
+
+    assert lavalink.connected_to == lavalink.player.channel.id
+    assert lavalink.player.play_calls == [fake_track]
+
+
+@pytest.mark.asyncio
 async def test_track_exception_clears_current_without_count(
     engine_setup: tuple[PlaybackEngine, FakeLavalinkSession, MetricsRegistry],
 ) -> None:

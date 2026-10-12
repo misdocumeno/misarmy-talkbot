@@ -300,6 +300,11 @@ class PlaybackEngine:
     async def _play_one(self, audio: AudioMessage) -> None:
         channel = self._master_voice_channel()
         if channel is None:
+            # Master is inside the disconnect grace window: keep speaking
+            # where the bot already is instead of dropping everyone's messages.
+            player = self._lavalink.player
+            channel = player.channel if player is not None else None
+        if channel is None:
             logger.warning(
                 'speak_no_master guild_id=%s; dropping head', self.guild_id
             )

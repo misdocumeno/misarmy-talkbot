@@ -30,6 +30,18 @@ class LavalinkSession:
     def __init__(self, bot: commands.Bot, guild_id: int) -> None:
         self._bot = bot
         self.guild_id = guild_id
+        self._requested_moves: set[int] = set()
+
+    def consume_requested_move(self, channel_id: int) -> bool:
+        """True once per ``move_to`` we issued, so other moves can be told apart.
+
+        Discord reports a move by us and a move by a moderator with the same
+        voice state update; only our own requests are recorded here.
+        """
+        if channel_id not in self._requested_moves:
+            return False
+        self._requested_moves.discard(channel_id)
+        return True
 
     def _guild(self) -> discord.Guild | None:
         return self._bot.get_guild(self.guild_id)
@@ -64,12 +76,15 @@ class LavalinkSession:
         if existing is not None:
             if existing.channel.id == channel_id:
                 return None
+            self._requested_moves.add(channel_id)
             try:
                 await existing.move_to(channel)
                 return None
             except discord.Forbidden:
+                self._requested_moves.discard(channel_id)
                 return PermissionError('forbidden move')
             except wavelink.LavalinkException:
+                self._requested_moves.discard(channel_id)
                 logger.exception(
                     'lavalink_move_failed guild_id=%s channel_id=%s',
                     self.guild_id,

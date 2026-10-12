@@ -10,7 +10,7 @@ from misarmy_talkbot.observability.logger import logger
 # Edge speaks through api.msedgeservices.com, which still accepts the
 # token shipped with edge-tts 7.2.8 (the latest release). Drop this
 # once https://github.com/rany2/edge-tts/pull/491 is published.
-edge_communicate.WSS_URL = (
+edge_communicate.WSS_URL = (  # pyright: ignore[reportPrivateImportUsage]
     'wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1'
     f'?Ocp-Apim-Subscription-Key={TRUSTED_CLIENT_TOKEN}'
 )

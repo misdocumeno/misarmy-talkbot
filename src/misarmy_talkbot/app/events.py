@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import discord
 
 from misarmy_talkbot.app.follow_ops import message_for_followed
-from misarmy_talkbot.app.voice_sync import reconcile_master_channel
+from misarmy_talkbot.app.voice_sync import drop_follower
 from misarmy_talkbot.core.follow.grace import DisconnectSupervisor
 from misarmy_talkbot.core.follow.registry import FollowRegistry
 from misarmy_talkbot.core.session.registry import GuildSessionRegistry
@@ -170,10 +170,28 @@ def register_events(bot: commands.Bot) -> None:
         follow_registry = FollowRegistry.instance()
         disconnect_supervisor = DisconnectSupervisor.instance()
 
-        # The bot's own voice transitions are handled by Lavalink/wavelink; we
-        # only care about followed users here. (Lavalink resyncs the player
-        # when Discord moves the bot, we do not need to react.)
+        # The bot only changes channel to follow its master. Being moved or
+        # disconnected by someone else means everyone is unfollowed. Our own
+        # dispose pops the session first, which makes this a no-op for it.
         if member == bot.user:
+            guild_session = sessions.get(guild_id)
+            if guild_session is None or before.channel is None:
+                return
+            if (
+                after.channel is not None
+                and guild_session.lavalink.consume_requested_move(
+                    after.channel.id
+                )
+            ):
+                return
+            logger.info(
+                'bot_voice_changed_externally guild_id=%s moved_to=%s',
+                guild_id,
+                after.channel.id if after.channel is not None else None,
+            )
+            await disconnect_supervisor.cancel_all_for_guild(guild_id)
+            follow_registry.discard_guild(guild_id)
+            await sessions.dispose(guild_id)
             return
 
         if not follow_registry.is_followed(guild_id, member.id):
@@ -208,13 +226,19 @@ def register_events(bot: commands.Bot) -> None:
 
         if before.channel is None:
             await disconnect_supervisor.cancel_drop(guild_id, member.id)
-            return
+            guild_session = sessions.get(guild_id)
+            player = (
+                guild_session.lavalink.player
+                if guild_session is not None
+                else None
+            )
+            if player is None or player.channel.id == after.channel.id:
+                return
+            # Rejoined a different channel: same as moving there directly.
 
         master_user_id = follow_registry.master(guild_id)
         if member.id != master_user_id:
-            follow_registry.unfollow(guild_id, member.id)
-            if not follow_registry.is_tracked(guild_id):
-                await sessions.dispose(guild_id)
+            await drop_follower(bot, guild_id, member.id)
             return
 
         # Master moved channels - resync the player and clear in-flight queue
@@ -229,8 +253,21 @@ def register_events(bot: commands.Bot) -> None:
             after.channel.id
         )
         if isinstance(error, PermissionError):
-            follow_registry.unfollow(guild_id, member.id)
-            await reconcile_master_channel(bot, guild_id)
+            await drop_follower(bot, guild_id, member.id)
+
+    @bot.event
+    async def on_raw_member_remove(
+        payload: discord.RawMemberRemoveEvent,
+    ) -> None:
+        # A removed member cannot come back within the grace window. Waiting it
+        # out keeps a master the bot can never reach, and every message in the
+        # meantime is dropped as "speak_no_master".
+        guild_id = payload.guild_id
+        user_id = payload.user.id
+        if not FollowRegistry.instance().is_followed(guild_id, user_id):
+            return
+        await DisconnectSupervisor.instance().cancel_drop(guild_id, user_id)
+        await drop_follower(bot, guild_id, user_id)
 
     @bot.event
     async def on_ready() -> None:

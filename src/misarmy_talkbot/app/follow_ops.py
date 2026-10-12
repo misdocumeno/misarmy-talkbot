@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, cast
 
 import discord
 
-from misarmy_talkbot.app.voice_sync import reconcile_master_channel
+from misarmy_talkbot.app.voice_sync import drop_follower
 from misarmy_talkbot.core.follow.registry import FollowRegistry
 from misarmy_talkbot.core.playback.audio import AudioMessage
 from misarmy_talkbot.core.session.registry import GuildSessionRegistry
@@ -45,7 +45,7 @@ async def follow_user(
     target_channel_id = voice_channel.id
     master_user_id = follow_registry.master(guild_id)
 
-    if guild_session is None:
+    if guild_session is None or master_user_id is None:
         if not follow_registry.follow(guild_id, user_id):
             return discord.Colour.red(), 'already_following'
         follow_registry.set_master(guild_id, user_id)
@@ -90,11 +90,7 @@ async def unfollow_user(
     follow_registry = FollowRegistry.instance()
     if not follow_registry.is_followed(guild_id, user_id):
         return discord.Colour.red(), 'not_following'
-    follow_registry.unfollow(guild_id, user_id)
-    if not follow_registry.is_tracked(guild_id):
-        await GuildSessionRegistry.instance().dispose(guild_id)
-    else:
-        await reconcile_master_channel(bot, guild_id)
+    await drop_follower(bot, guild_id, user_id)
     return discord.Colour.dark_purple(), 'unfollow_success'
 
 
