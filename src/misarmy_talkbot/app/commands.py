@@ -11,6 +11,10 @@ from misarmy_talkbot.app.follow_ops import (
     unfollow_user,
 )
 from misarmy_talkbot.args import args
+from misarmy_talkbot.core.playback.tts.exceptions import ProsodyValidationError
+from misarmy_talkbot.core.playback.tts.settings import (
+    load_azure_speech_settings,
+)
 from misarmy_talkbot.core.session.registry import GuildSessionRegistry
 from misarmy_talkbot.infra.config.command import config_command
 from misarmy_talkbot.infra.database.preset import (
@@ -19,6 +23,7 @@ from misarmy_talkbot.infra.database.preset import (
     get_presets,
     save_preset,
 )
+from misarmy_talkbot.infra.database.tts_usage import TtsUsageStore
 from misarmy_talkbot.infra.database.voice import get_voice, update_voice
 from misarmy_talkbot.infra.locale import supported_locales, translate
 from misarmy_talkbot.observability.metrics import MetricsRegistry
@@ -233,12 +238,25 @@ def register_commands(bot: commands.Bot) -> None:
                 'pitch_cmd_current_pitch',
                 pitch=voice.pitch,
             )
-        elif await update_voice(member, pitch=new_pitch):
-            await reply_interaction(
-                interaction, color, 'pitch_cmd_new_pitch', pitch=new_pitch
-            )
         else:
-            await reply_interaction(interaction, color, 'pitch_cmd_same_pitch')
+            try:
+                changed = await update_voice(member, pitch=new_pitch)
+            except ProsodyValidationError as exc:
+                await reply_interaction(
+                    interaction,
+                    discord.Colour.red(),
+                    'pitch_cmd_invalid_pitch',
+                    detail=str(exc),
+                )
+                return
+            if changed:
+                await reply_interaction(
+                    interaction, color, 'pitch_cmd_new_pitch', pitch=new_pitch
+                )
+            else:
+                await reply_interaction(
+                    interaction, color, 'pitch_cmd_same_pitch'
+                )
 
     @bot.tree.command(
         name='speed', description=translate('speed_cmd_description')
@@ -262,12 +280,25 @@ def register_commands(bot: commands.Bot) -> None:
                 'speed_cmd_current_speed',
                 speed=voice.speed,
             )
-        elif await update_voice(member, speed=new_speed):
-            await reply_interaction(
-                interaction, color, 'speed_cmd_new_speed', speed=new_speed
-            )
         else:
-            await reply_interaction(interaction, color, 'speed_cmd_same_speed')
+            try:
+                changed = await update_voice(member, speed=new_speed)
+            except ProsodyValidationError as exc:
+                await reply_interaction(
+                    interaction,
+                    discord.Colour.red(),
+                    'speed_cmd_invalid_speed',
+                    detail=str(exc),
+                )
+                return
+            if changed:
+                await reply_interaction(
+                    interaction, color, 'speed_cmd_new_speed', speed=new_speed
+                )
+            else:
+                await reply_interaction(
+                    interaction, color, 'speed_cmd_same_speed'
+                )
 
     @bot.tree.command(
         name='preset', description=translate('preset_cmd_description')
@@ -327,17 +358,27 @@ def register_commands(bot: commands.Bot) -> None:
                     'preset_cmd_does_not_exist',
                 )
             else:
-                await update_voice(
-                    member,
-                    voice=loaded.voice,
-                    pitch=loaded.pitch,
-                    speed=loaded.speed,
-                )
+                try:
+                    await update_voice(
+                        member,
+                        voice=loaded.voice,
+                        pitch=loaded.pitch,
+                        speed=loaded.speed,
+                    )
+                except ProsodyValidationError as exc:
+                    await reply_interaction(
+                        interaction,
+                        discord.Colour.red(),
+                        'preset_cmd_invalid_prosody',
+                        detail=str(exc),
+                    )
+                    return
                 await reply_interaction(
                     interaction,
                     discord.Colour.dark_purple(),
                     'preset_cmd_loaded',
                 )
+
         elif action_value == 'delete':
             if await delete_preset(member, cast('str', preset_name)):
                 await reply_interaction(
@@ -478,4 +519,91 @@ def register_commands(bot: commands.Bot) -> None:
             embed.add_field(name=name, value=val, inline=False)
         if not rows:
             embed.description = 'No metrics recorded yet for this guild.'
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @bot.tree.command(
+        name='tts-usage',
+        description=translate('tts_usage_cmd_description'),
+    )
+    @app_commands.describe(
+        days=translate('tts_usage_cmd_days_argument_description')
+    )
+    @app_commands.default_permissions(mute_members=True)
+    @app_commands.guild_only()
+    async def tts_usage_cmd(
+        interaction: discord.Interaction, days: int = 30
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+        if interaction.guild is None:
+            return
+        clamped_days = max(1, min(days, 90))
+        azure_settings = load_azure_speech_settings()
+        report = await TtsUsageStore.instance().build_report(
+            days=clamped_days,
+            guild_id=interaction.guild.id,
+            azure_month_cap=azure_settings.monthly_cap,
+        )
+        embed = discord.Embed(
+            title=translate('tts_usage_cmd_title', interaction.guild).format(
+                days=report.days
+            ),
+            color=discord.Colour.dark_purple(),
+        )
+        embed.add_field(
+            name=translate('tts_usage_cmd_totals', interaction.guild),
+            value=(f'{report.total_chars} chars / {report.total_requests} ok'),
+            inline=False,
+        )
+        if report.by_provider:
+            provider_lines = '\n'.join(
+                (
+                    f'`{summary.provider}`: {summary.chars} chars, '
+                    f'{summary.requests} req, ~${summary.est_usd:.2f}'
+                )
+                for summary in report.by_provider
+            )
+            embed.add_field(
+                name=translate('tts_usage_cmd_by_provider', interaction.guild),
+                value=provider_lines,
+                inline=False,
+            )
+        cap_label = (
+            str(report.azure_month_cap)
+            if report.azure_month_cap > 0
+            else 'unlimited'
+        )
+        embed.add_field(
+            name=translate('tts_usage_cmd_azure_month', interaction.guild),
+            value=f'{report.azure_month_chars} / {cap_label}',
+            inline=False,
+        )
+        if report.top_guilds:
+            embed.add_field(
+                name=translate('tts_usage_cmd_top_guilds', interaction.guild),
+                value='\n'.join(
+                    f'`{guild_id}`: {chars}'
+                    for guild_id, chars in report.top_guilds
+                ),
+                inline=False,
+            )
+        if report.top_users:
+            embed.add_field(
+                name=translate('tts_usage_cmd_top_users', interaction.guild),
+                value='\n'.join(
+                    f'<@{user_id}>: {chars}'
+                    for user_id, chars in report.top_users
+                ),
+                inline=False,
+            )
+        if report.guild_top_users:
+            embed.add_field(
+                name=translate(
+                    'tts_usage_cmd_guild_top_users', interaction.guild
+                ),
+                value='\n'.join(
+                    f'<@{user_id}>: {chars}'
+                    for user_id, chars in report.guild_top_users
+                ),
+                inline=False,
+            )
         await interaction.followup.send(embed=embed, ephemeral=True)

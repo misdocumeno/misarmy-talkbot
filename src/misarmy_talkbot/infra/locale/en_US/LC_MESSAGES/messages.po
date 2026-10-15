@@ -104,6 +104,9 @@ msgstr "You already have that voice pitch!"
 msgid "pitch_cmd_new_pitch"
 msgstr "Now your voice pitch will be {pitch}"
 
+msgid "pitch_cmd_invalid_pitch"
+msgstr "Invalid pitch: {detail}"
+
 
 msgid "speed_cmd_description"
 msgstr "Change your current voice speed."
@@ -120,8 +123,12 @@ msgstr "You already have that voice speed!"
 msgid "speed_cmd_new_speed"
 msgstr "Now your voice speed will be {speed}"
 
+msgid "speed_cmd_invalid_speed"
+msgstr "Invalid speed: {detail}"
+
 
 msgid "preset_cmd_description"
+
 msgstr "Save your current voice settings as a preset, or load an existing one."
 
 msgid "preset_cmd_action_argument_description"
@@ -145,8 +152,40 @@ msgstr "{presets}"
 msgid "preset_cmd_loaded"
 msgstr "Preset loaded!"
 
+msgid "preset_cmd_invalid_prosody"
+msgstr "Preset pitch/speed not allowed for that voice: {detail}"
+
 msgid "preset_cmd_saved"
 msgstr "Preset saved!"
+
+
+msgid "tts_usage_cmd_description"
+msgstr "Show TTS usage and estimated cost (admin)."
+
+msgid "tts_usage_cmd_days_argument_description"
+msgstr "How many days back to aggregate (1–90, default 30)."
+
+msgid "tts_usage_cmd_title"
+msgstr "TTS usage (last {days} days)"
+
+msgid "tts_usage_cmd_totals"
+msgstr "Totals"
+
+msgid "tts_usage_cmd_by_provider"
+msgstr "By provider"
+
+msgid "tts_usage_cmd_azure_month"
+msgstr "Azure chars this UTC month"
+
+msgid "tts_usage_cmd_top_guilds"
+msgstr "Top guilds"
+
+msgid "tts_usage_cmd_top_users"
+msgstr "Top users (all guilds)"
+
+msgid "tts_usage_cmd_guild_top_users"
+msgstr "Top users (this guild)"
+
 
 msgid "preset_cmd_deleted"
 msgstr "Preset deleted!"

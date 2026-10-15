@@ -3,6 +3,7 @@ from sqlalchemy import UniqueConstraint, insert, update
 from sqlalchemy.future import select
 from sqlalchemy.orm import Mapped, mapped_column
 
+from misarmy_talkbot.core.playback.tts.registry import TtsRegistry
 from misarmy_talkbot.infra.config.config import config
 
 from .database import Base, async_session
@@ -70,7 +71,11 @@ async def update_voice(
     pitch: float | None = None,
     speed: float | None = None,
 ) -> bool:
-    """Updates the voice setting in the database (caching it)."""
+    """Updates the voice setting in the database (caching it).
+
+    Validates pitch/speed against the provider's limits at configuration time
+    (not on every TTS call). Raises ``ProsodyValidationError`` on bad values.
+    """
     current = await get_voice(member)
 
     # reset pitch and speed when changing the voice
@@ -88,6 +93,10 @@ async def update_voice(
         current.speed,
     ):
         return False
+
+    TtsRegistry.instance().validate_prosody(
+        new_voice, pitch=new_pitch, speed=new_speed
+    )
 
     async with async_session() as session:
         updated = await session.execute(

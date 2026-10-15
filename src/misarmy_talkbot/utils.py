@@ -1,14 +1,13 @@
 from typing import cast
 
 import discord
-import edge_tts
-import gtts
-import gtts.lang
 from discord import app_commands
 from discord.ext import commands
 
+from misarmy_talkbot.core.playback.tts.registry import TtsRegistry
 from misarmy_talkbot.infra.database.preset import get_presets
 from misarmy_talkbot.infra.locale import translate
+from misarmy_talkbot.observability.logger import logger
 
 from .args import args
 
@@ -112,16 +111,18 @@ async def reply_unsupported_locale(message: discord.Message) -> None:
 
 
 async def voices_list() -> list[str]:
-    return [
-        *[
-            f'google/{code}-{country}'
-            for code, country in gtts.lang.tts_langs().items()
-        ],
-        *[
-            f'edge/{voice["ShortName"]}'
-            for voice in await edge_tts.list_voices()
-        ],
-    ]
+    """All user-facing voice ids from registered TTS providers."""
+    voice_registry = TtsRegistry.instance()
+    voices: list[str] = []
+    for prefix in voice_registry.prefixes():
+        provider = voice_registry.get(prefix)
+        try:
+            voice_ids = await provider.list_voice_ids()
+        except Exception:
+            logger.exception('voices_list_failed prefix=%s', prefix)
+            continue
+        voices.extend(f'{prefix}/{voice_id}' for voice_id in voice_ids)
+    return voices
 
 
 async def voice_autocomplete(

@@ -59,5 +59,7 @@ def test_lavalink_identifier_is_absolute_posix_path() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         storage = AudioStorage(audio_dir=Path(tmp))
         path = Path(tmp) / 'foo.mp3'
-        assert storage.lavalink_identifier(path) == path.as_posix()
-        assert storage.lavalink_identifier(path).startswith('/')
+        identifier = storage.lavalink_identifier(path)
+        assert identifier == path.as_posix()
+        # Absolute on the host OS (POSIX leading slash, Windows drive letter).
+        assert Path(identifier).is_absolute() or identifier.startswith('/')

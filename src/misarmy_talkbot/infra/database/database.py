@@ -1,3 +1,5 @@
+import importlib
+
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -21,5 +23,11 @@ async_session = async_sessionmaker(
 
 
 async def create_tables() -> None:
+    # Side-effect imports register ORM models on Base.metadata.
+    for module_name in ('preset', 'tts_usage', 'voice'):
+        importlib.import_module(
+            f'misarmy_talkbot.infra.database.{module_name}'
+        )
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

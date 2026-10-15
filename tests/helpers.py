@@ -12,8 +12,10 @@ import discord
 from misarmy_talkbot.core.follow.grace import DisconnectSupervisor
 from misarmy_talkbot.core.follow.registry import FollowRegistry
 from misarmy_talkbot.core.playback.audio import AudioMessage, AudioState
+from misarmy_talkbot.core.playback.tts.registry import TtsRegistry
 from misarmy_talkbot.core.session.registry import GuildSessionRegistry
 from misarmy_talkbot.infra.audio_storage import AudioStorage
+from misarmy_talkbot.infra.database.tts_usage import TtsUsageStore
 from misarmy_talkbot.observability.metrics import MetricsRegistry
 
 
@@ -23,6 +25,8 @@ def reset_singletons() -> None:
     GuildSessionRegistry._instance = None
     MetricsRegistry._instance = None
     AudioStorage._instance = None
+    TtsRegistry.reset()
+    TtsUsageStore.reset()
 
 
 def install_temp_audio_storage() -> AudioStorage:

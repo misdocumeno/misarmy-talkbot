@@ -17,6 +17,7 @@ from misarmy_talkbot.app.follow_ops import message_for_followed
 from misarmy_talkbot.app.voice_sync import drop_follower
 from misarmy_talkbot.core.follow.grace import DisconnectSupervisor
 from misarmy_talkbot.core.follow.registry import FollowRegistry
+from misarmy_talkbot.core.playback.tts.registry import TtsRegistry
 from misarmy_talkbot.core.session.registry import GuildSessionRegistry
 from misarmy_talkbot.infra.audio_storage import AudioStorage
 from misarmy_talkbot.infra.config.command import on_config_mention
@@ -28,6 +29,7 @@ from misarmy_talkbot.infra.config.config import (
 )
 from misarmy_talkbot.infra.config.presence import apply_global_presence
 from misarmy_talkbot.infra.database.database import create_tables
+from misarmy_talkbot.infra.database.tts_usage import TtsUsageStore
 from misarmy_talkbot.observability.debugpy_boot import start_debugpy_if_enabled
 from misarmy_talkbot.observability.logger import logger
 from misarmy_talkbot.observability.metrics import MetricsRegistry
@@ -65,7 +67,9 @@ async def _first_boot(bot: commands.Bot) -> None:
     logger.info('first_boot ENTER guild_count=%s', len(bot.guilds))
     try:
         await create_tables()
+        TtsRegistry.build_default(TtsUsageStore.instance())
         await _load_guild_config(None)
+
         await apply_global_presence(bot)
         for guild in bot.guilds:
             await _load_guild_config(guild)

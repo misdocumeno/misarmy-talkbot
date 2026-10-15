@@ -7,16 +7,14 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING, cast
 
 from misarmy_talkbot.core.playback.tts.edits import apply_edits
-from misarmy_talkbot.core.playback.tts.voice_settings import (
-    edge_tts_params,
-    google_tts_params,
-)
-from misarmy_talkbot.core.playback.tts.voices.edge import generate_edge_tts
-from misarmy_talkbot.core.playback.tts.voices.google import (
-    NoTokensError,
-    generate_google_tts,
-)
+from misarmy_talkbot.core.playback.tts.exceptions import NoTokensError
+from misarmy_talkbot.core.playback.tts.registry import TtsRegistry
+from misarmy_talkbot.core.playback.tts.synthesize import synthesize_mp3
 from misarmy_talkbot.infra.audio_storage import AudioStorage
+from misarmy_talkbot.infra.database.tts_usage import (
+    TtsUsageStore,
+    UsageRecord,
+)
 from misarmy_talkbot.infra.database.voice import get_voice
 from misarmy_talkbot.observability.logger import logger
 
@@ -53,6 +51,7 @@ class AudioMessage:
         message: discord.Message,
         *,
         storage: AudioStorage | None = None,
+        usage_store: TtsUsageStore | None = None,
     ) -> None:
         self.state = AudioState.PENDING
         self.original = message
@@ -61,6 +60,7 @@ class AudioMessage:
         self.track_path = None
         self.audio_bytes = 0
         self._storage = storage or AudioStorage.instance()
+        self._usage_store = usage_store or TtsUsageStore.instance()
 
     async def process(self) -> None:
         """Generate TTS audio and write it to tmpfs; sets ``state`` accordingly."""
@@ -74,45 +74,69 @@ class AudioMessage:
             self.state = AudioState.READY
             return
 
+        guild = self.original.guild
+        guild_id = guild.id if guild is not None else 0
+        error_message: str | None = None
+        backend_name = 'unknown'
+        latency_ms = 0
+
         try:
-            provider = voice_settings.voice.split('/')[0]
-            match provider:
-                case 'edge':
-                    edge_voice, rate, pitch = edge_tts_params(voice_settings)
-                    buffer = await generate_edge_tts(
-                        self.content, voice=edge_voice, rate=rate, pitch=pitch
-                    )
-                case 'google':
-                    g_voice, aresample, asetrate, atempo = google_tts_params(
-                        voice_settings
-                    )
-                    buffer = await generate_google_tts(
-                        self.content,
-                        voice=g_voice,
-                        aresample=aresample,
-                        asetrate=asetrate,
-                        atempo=atempo,
-                    )
-                case _:
-                    raise ValueError(f'unsupported TTS provider: {provider!r}')
+            result = await synthesize_mp3(
+                self.content,
+                voice=voice_settings.voice,
+                pitch=voice_settings.pitch,
+                speed=voice_settings.speed,
+            )
+            backend_name = result.backend_name
+            latency_ms = result.latency_ms
+            payload = result.audio
         except NoTokensError:
+            error_message = 'no_tokens'
             logger.warning(
                 'tts_no_tokens content=%r voice=%s',
                 self.content,
                 voice_settings.voice,
             )
             self.state = AudioState.FAILED
+            await self._record_usage(
+                guild_id=guild_id,
+                user_id=author.id,
+                provider=backend_name,
+                voice=voice_settings.voice,
+                chars=len(self.content),
+                ok=False,
+                latency_ms=latency_ms,
+                error=error_message,
+            )
             return
-        except AssertionError:
+        except Exception as exc:
+            error_message = str(exc)[:200]
+            try:
+                prefix, _voice_id = TtsRegistry.instance().parse_voice(
+                    voice_settings.voice
+                )
+                backend_name = TtsRegistry.instance().backend_name_for(prefix)
+            except Exception:
+                backend_name = voice_settings.voice.split('/')[0]
             logger.warning(
-                'tts_assertion content=%r voice=%s',
+                'tts_failed content=%r voice=%s error=%s',
                 self.content,
                 voice_settings.voice,
+                error_message,
             )
             self.state = AudioState.FAILED
+            await self._record_usage(
+                guild_id=guild_id,
+                user_id=author.id,
+                provider=backend_name,
+                voice=voice_settings.voice,
+                chars=len(self.content),
+                ok=False,
+                latency_ms=latency_ms,
+                error=error_message,
+            )
             return
 
-        payload = buffer.getvalue()
         if not payload:
             logger.warning(
                 'tts_empty_audio content=%r voice=%s',
@@ -120,16 +144,62 @@ class AudioMessage:
                 voice_settings.voice,
             )
             self.state = AudioState.FAILED
+            await self._record_usage(
+                guild_id=guild_id,
+                user_id=author.id,
+                provider=backend_name,
+                voice=voice_settings.voice,
+                chars=len(self.content),
+                ok=False,
+                latency_ms=latency_ms,
+                error='empty_audio',
+            )
             return
 
         self.track_path = await self._storage.write(payload)
         self.audio_bytes = len(payload)
         self.state = AudioState.READY
+        await self._record_usage(
+            guild_id=guild_id,
+            user_id=author.id,
+            provider=backend_name,
+            voice=voice_settings.voice,
+            chars=len(self.content),
+            ok=True,
+            latency_ms=latency_ms,
+            error=None,
+        )
         logger.debug(
-            'tts_ready content=%r bytes=%s path=%s',
+            'tts_ready content=%r bytes=%s path=%s backend=%s',
             self.content,
             self.audio_bytes,
             self.track_path,
+            backend_name,
+        )
+
+    async def _record_usage(
+        self,
+        *,
+        guild_id: int,
+        user_id: int,
+        provider: str,
+        voice: str,
+        chars: int,
+        ok: bool,
+        latency_ms: int,
+        error: str | None,
+    ) -> None:
+        await self._usage_store.record(
+            UsageRecord(
+                guild_id=guild_id,
+                user_id=user_id,
+                provider=provider,
+                voice=voice,
+                chars=chars,
+                ok=ok,
+                latency_ms=latency_ms,
+                error=error,
+            )
         )
 
     async def edit(self, message: discord.Message) -> None:

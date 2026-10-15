@@ -31,8 +31,10 @@ Tradeoffs we accepted:
   health gate or close-code state machine; session resume and transport issues
   are Lavalink/wavelink concerns.
 
-TTS generation (gTTS, ffmpeg post-process for MP3) remains in Python; only
-playback moved out of process.
+TTS generation remains in Python (Azure Speech and/or edge-tts for `edge/`
+voices, gTTS for `google/`, with ffmpeg pitch/speed only when the provider has
+no native prosody). Only playback moved out of process.
+
 
 ## Run it (Docker)
 
@@ -176,6 +178,9 @@ fall back to the base locale.
 | `TTS_MAX_CONCURRENT` | `2` | Per-guild bound on concurrent TTS generation tasks (Edge rate-limits bursts) |
 | `EDGE_TTS_MAX_ATTEMPTS` | `4` | Retries for Edge TTS `429` responses |
 | `EDGE_TTS_RETRY_BACKOFF_SECONDS` | `1.5` | Base backoff (seconds) between Edge TTS `429` retries |
+| `AZURE_SPEECH_KEY` | (empty) | Azure Speech subscription key; when set with region, `edge/` uses Azure first |
+| `AZURE_SPEECH_REGION` | (empty) | Azure Speech region (e.g. `eastus`) |
+| `AZURE_SPEECH_MONTHLY_CAP` | `500000` | Soft char cap per UTC calendar month for Azure (`0` = unlimited); over cap falls back to edge-tts |
 | `LOG_LEVEL` | `INFO` | stderr log level (bot) |
 | `LANG` | `en_US` (bundled) | Gettext locale for slash descriptions and presence (`es_AR`, custom codes under `config/locales/`, …) |
 | `GRACE_DROP_SECONDS` | `60` | Voice disconnect grace before auto-unfollow |
