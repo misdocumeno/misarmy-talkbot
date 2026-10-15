@@ -556,14 +556,14 @@ voice = ["PyNaCl (>=1.5.0,<1.6)", "davey (>=0.1.0)"]
 
 [[package]]
 name = "edge-tts"
-version = "7.2.8"
+version = "7.3.1"
 description = "Microsoft Edge's TTS"
 optional = false
 python-versions = ">=3.7"
 groups = ["main"]
 files = [
-    {file = "edge_tts-7.2.8-py3-none-any.whl", hash = "sha256:361fe48ce7ef613adbe30f664e3765dd71029c6cb57427279eff8ad6df2eb211"},
-    {file = "edge_tts-7.2.8.tar.gz", hash = "sha256:fcf185a0d527a0d2d003f9d5841facc1d5e0e7b3b88d5df9c32990402c6b8cd0"},
+    {file = "edge_tts-7.3.1-py3-none-any.whl", hash = "sha256:2a3c79d6235a7a736d681233823ce5492e829b43eb47beae49aa181237a8f9a4"},
+    {file = "edge_tts-7.3.1.tar.gz", hash = "sha256:ee1fabf911b9ea83b38ae93aee5619ee41eaf0b109fef6e65d797dc4ebf1f20f"},
 ]
 
 [package.dependencies]
@@ -1935,4 +1935,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.14"
-content-hash = "c83c41f4f3b5789381b438f26cf7decd63d3c67b6484d15a1f3b8c4a3eaf4702"
+content-hash = "b30f9ce6537adaaa0df48740ec87143b365254058e2285aa2860da2cd18764c6"

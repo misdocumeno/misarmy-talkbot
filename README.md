@@ -173,7 +173,9 @@ fall back to the base locale.
 | `AUDIO_DIR` | `/tmp/talkbot-audio` | Shared tmpfs path for generated TTS files |
 | `AUDIO_TTL_SECONDS` | `600` | Janitor TTL for orphaned audio files |
 | `AUDIO_JANITOR_INTERVAL_SECONDS` | `120` | Janitor sweep interval |
-| `TTS_MAX_CONCURRENT` | `4` | Per-guild bound on concurrent TTS generation tasks |
+| `TTS_MAX_CONCURRENT` | `2` | Per-guild bound on concurrent TTS generation tasks (Edge rate-limits bursts) |
+| `EDGE_TTS_MAX_ATTEMPTS` | `4` | Retries for Edge TTS `429` responses |
+| `EDGE_TTS_RETRY_BACKOFF_SECONDS` | `1.5` | Base backoff (seconds) between Edge TTS `429` retries |
 | `LOG_LEVEL` | `INFO` | stderr log level (bot) |
 | `LANG` | `en_US` (bundled) | Gettext locale for slash descriptions and presence (`es_AR`, custom codes under `config/locales/`, …) |
 | `GRACE_DROP_SECONDS` | `60` | Voice disconnect grace before auto-unfollow |

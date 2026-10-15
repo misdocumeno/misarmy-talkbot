@@ -54,7 +54,8 @@ class PlaybackEngine:
         self._queue = MessageQueue(guild_id)
         self._speak_task: asyncio.Task[None] | None = None
         self._gen_tasks: set[asyncio.Task[None]] = set()
-        max_concurrent = max(1, int(os.getenv('TTS_MAX_CONCURRENT', '4')))
+        # Keep this low: Edge TTS returns intermittent 429 under chat bursts.
+        max_concurrent = max(1, int(os.getenv('TTS_MAX_CONCURRENT', '2')))
         self._gen_semaphore = asyncio.Semaphore(max_concurrent)
         self._stopped = False
         self._current: AudioMessage | None = None
