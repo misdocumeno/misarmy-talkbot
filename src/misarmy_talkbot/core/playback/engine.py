@@ -54,6 +54,8 @@ class PlaybackEngine:
         self._queue = MessageQueue(guild_id)
         self._speak_task: asyncio.Task[None] | None = None
         self._gen_tasks: set[asyncio.Task[None]] = set()
+        # message_id → in-flight TTS task (cancelled on edit/delete).
+        self._gen_by_message: dict[int, asyncio.Task[None]] = {}
         # Keep this low: Edge TTS returns intermittent 429 under chat bursts.
         max_concurrent = max(1, int(os.getenv('TTS_MAX_CONCURRENT', '2')))
         self._gen_semaphore = asyncio.Semaphore(max_concurrent)
@@ -118,11 +120,27 @@ class PlaybackEngine:
             self._metrics.set_gauge(
                 'queue_depth', self.guild_id, float(len(self._queue))
             )
+        self._spawn_generation(audio)
+
+    def _spawn_generation(self, audio: AudioMessage) -> None:
+        """Start (or replace) the TTS task for ``audio.original.id``."""
+        message_id = audio.original.id
+        previous = self._gen_by_message.get(message_id)
+        if previous is not None and not previous.done():
+            previous.cancel()
+
         task = asyncio.create_task(
             self._process_audio(audio), name=f'tts_{self.guild_id}'
         )
         self._gen_tasks.add(task)
-        task.add_done_callback(self._gen_tasks.discard)
+        self._gen_by_message[message_id] = task
+
+        def _on_done(done: asyncio.Task[None]) -> None:
+            self._gen_tasks.discard(done)
+            if self._gen_by_message.get(message_id) is done:
+                self._gen_by_message.pop(message_id, None)
+
+        task.add_done_callback(_on_done)
 
     async def _process_audio(self, audio: AudioMessage) -> None:
         async with self._gen_semaphore:
@@ -165,20 +183,24 @@ class PlaybackEngine:
             self._metrics.set_gauge('queue_depth', self.guild_id, 0.0)
 
     async def on_message_edit(self, message: discord.Message) -> None:
+        """Regenerate TTS for a queued (not yet playing) message.
+
+        The item currently in ``_current`` is left alone: mid-play rewrite would
+        race Lavalink. Only the waiting queue is updated.
+        """
         for queued in self._queue:
             if queued.original == message:
                 await queued.edit(message)
-                task = asyncio.create_task(
-                    self._process_audio(queued),
-                    name=f'tts_edit_{self.guild_id}',
-                )
-                self._gen_tasks.add(task)
-                task.add_done_callback(self._gen_tasks.discard)
+                self._spawn_generation(queued)
                 break
 
     async def on_message_delete(self, message: discord.Message) -> None:
+        """Drop a queued message; cancel any in-flight TTS for it."""
         for queued in list(self._queue):
             if queued.original == message:
+                previous = self._gen_by_message.get(message.id)
+                if previous is not None and not previous.done():
+                    previous.cancel()
                 await self._queue.remove(queued)
                 await queued.cleanup()
                 if self._metrics:

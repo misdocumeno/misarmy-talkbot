@@ -1,7 +1,14 @@
-"""One Discord message represented as a TTS audio file on tmpfs."""
+"""One Discord message represented as TTS audio on the shared tmpfs volume.
+
+Synthesis runs in memory (``bytes`` / ``BytesIO``). The only filesystem write is
+to ``AUDIO_DIR`` (tmpfs in Docker), so Lavalink can load a local path. That is
+RAM-backed shared memory between containers — not persistent disk. The engine
+deletes the file after playback; the janitor only sweeps crash orphans.
+"""
 
 from __future__ import annotations
 
+import asyncio
 import time
 from enum import Enum, auto
 from typing import TYPE_CHECKING, cast
@@ -32,11 +39,10 @@ class AudioState(Enum):
 
 
 class AudioMessage:
-    """Lifecycle for one chat message: text edits -> TTS bytes -> tmpfs file.
+    """Lifecycle for one chat message: text edits → TTS bytes → tmpfs MP3.
 
-    The file path is what the engine hands to Lavalink. The MP3 stays on tmpfs
-    until the engine deletes it after playback (or the storage janitor sweeps
-    orphans).
+    ``_generation`` invalidates in-flight ``process()`` after edit/delete so a
+    stale synthesis cannot overwrite newer audio or resurrect a discarded file.
     """
 
     content: str
@@ -59,11 +65,17 @@ class AudioMessage:
         self.content = apply_edits(message)
         self.track_path = None
         self.audio_bytes = 0
+        self._generation = 0
         self._storage = storage or AudioStorage.instance()
         self._usage_store = usage_store or TtsUsageStore.instance()
 
+    def invalidate(self) -> None:
+        """Bump generation so any in-flight ``process()`` discards its result."""
+        self._generation += 1
+
     async def process(self) -> None:
         """Generate TTS audio and write it to tmpfs; sets ``state`` accordingly."""
+        generation = self._generation
         author = cast('discord.Member', self.original.author)
         self.state = AudioState.PROCESSING
 
@@ -71,7 +83,8 @@ class AudioMessage:
         logger.debug('tts_processing %r %s', self.content, voice_settings)
 
         if self.content == '':
-            self.state = AudioState.READY
+            if generation == self._generation:
+                self.state = AudioState.READY
             return
 
         guild = self.original.guild
@@ -90,6 +103,8 @@ class AudioMessage:
             backend_name = result.backend_name
             latency_ms = result.latency_ms
             payload = result.audio
+        except asyncio.CancelledError:
+            raise
         except NoTokensError:
             error_message = 'no_tokens'
             logger.warning(
@@ -97,6 +112,8 @@ class AudioMessage:
                 self.content,
                 voice_settings.voice,
             )
+            if generation != self._generation:
+                return
             self.state = AudioState.FAILED
             await self._record_usage(
                 guild_id=guild_id,
@@ -124,6 +141,8 @@ class AudioMessage:
                 voice_settings.voice,
                 error_message,
             )
+            if generation != self._generation:
+                return
             self.state = AudioState.FAILED
             await self._record_usage(
                 guild_id=guild_id,
@@ -135,6 +154,9 @@ class AudioMessage:
                 latency_ms=latency_ms,
                 error=error_message,
             )
+            return
+
+        if generation != self._generation:
             return
 
         if not payload:
@@ -156,7 +178,12 @@ class AudioMessage:
             )
             return
 
-        self.track_path = await self._storage.write(payload)
+        track_path = await self._storage.write(payload)
+        if generation != self._generation:
+            await self._storage.delete(track_path)
+            return
+
+        self.track_path = track_path
         self.audio_bytes = len(payload)
         self.state = AudioState.READY
         await self._record_usage(
@@ -204,6 +231,7 @@ class AudioMessage:
 
     async def edit(self, message: discord.Message) -> None:
         """Reset to PENDING with new content; previously-written file is dropped."""
+        self.invalidate()
         await self._storage.delete(self.track_path)
         self.track_path = None
         self.audio_bytes = 0
@@ -213,7 +241,8 @@ class AudioMessage:
         self.content = apply_edits(message)
 
     async def cleanup(self) -> None:
-        """Remove the on-disk MP3 (idempotent)."""
+        """Remove the tmpfs MP3 (idempotent) and invalidate in-flight work."""
+        self.invalidate()
         if self.track_path is not None:
             await self._storage.delete(self.track_path)
             self.track_path = None
