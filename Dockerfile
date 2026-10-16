@@ -12,11 +12,10 @@ RUN poetry config virtualenvs.in-project true \
 
 FROM python:3.12-slim-bookworm
 
-# ffmpeg is used only for gTTS pitch/speed post-processing (a short subprocess
-# pass per Google TTS message). Lavalink (separate container) is what actually
-# decodes and transmits audio to Discord.
+# ffmpeg: gTTS prosody post-process. ca-certificates: Azure Speech SDK TLS.
+# Lavalink (separate container) decodes/transmits audio to Discord.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg gettext \
+    && apt-get install -y --no-install-recommends ffmpeg gettext ca-certificates \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

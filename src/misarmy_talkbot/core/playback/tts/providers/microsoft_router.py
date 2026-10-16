@@ -95,12 +95,7 @@ class MicrosoftTtsRouter:
         pitch: float,
         speed: float,
     ) -> AsyncIterator[bytes]:
-        """Stream when on edge-tts; Azure REST yields one complete buffer.
-
-        True Azure first-byte streaming needs the Speech SDK; until then REST
-        still avoids disk by publishing the buffer over the in-memory HTTP
-        bridge. Edge-tts chunks stream as Microsoft produces them.
-        """
+        """Stream Azure SDK MP3 chunks; fall back to edge-tts on quota/errors."""
         char_count = len(text)
         if await self._azure_over_cap(char_count):
             logger.warning(
@@ -115,16 +110,20 @@ class MicrosoftTtsRouter:
             return
 
         await self._maybe_warn_near_cap(char_count)
+        produced = False
         try:
-            audio = await self._azure.synthesize(
-                text, voice_id=voice_id, pitch=pitch, speed=speed
-            )
             self._last_backend = 'azure'
             self.backend_name = 'azure'
-            if audio:
-                yield audio
+            async for chunk in self._azure.stream_synthesize(
+                text, voice_id=voice_id, pitch=pitch, speed=speed
+            ):
+                produced = True
+                yield chunk
             return
         except (AzureQuotaExceeded, AzureSynthesisError) as exc:
+            # Mid-stream fallback would mix Azure+edge bytes; only retry fresh.
+            if produced:
+                raise
             logger.warning('azure_tts_failed_fallback_edge error=%s', exc)
             async for chunk in self._stream_edge(
                 text, voice_id=voice_id, pitch=pitch, speed=speed

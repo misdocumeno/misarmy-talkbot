@@ -32,9 +32,11 @@ Tradeoffs we accepted:
   health gate or close-code state machine; session resume and transport issues
   are Lavalink/wavelink concerns.
 
-TTS generation remains in Python (Azure Speech and/or edge-tts for `edge/`
-voices; Google Cloud TTS and/or gTTS for `google/`, with ffmpeg pitch/speed only
-when the provider has no native prosody). Only playback moved out of process.
+TTS generation remains in Python (Azure Speech SDK streaming and/or edge-tts for
+`edge/` voices; Google Cloud TTS and/or gTTS for `google/`, with ffmpeg
+pitch/speed only when the provider has no native prosody). Google's bidirectional
+`StreamingSynthesize` is Chirp 3 HD–only, so Standard voices stay one-shot into
+the HTTP bridge. Only Discord playback moved out of process.
 
 
 ## Run it (Docker)

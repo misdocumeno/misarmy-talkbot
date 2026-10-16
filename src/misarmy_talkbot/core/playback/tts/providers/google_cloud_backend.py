@@ -38,6 +38,9 @@ def _pitch_to_semitones(pitch: float) -> float:
 class GoogleCloudTtsProvider:
     backend_name: str = 'google_cloud'
     supports_native_prosody: bool = True
+    # Google StreamingSynthesize is Chirp 3 HD only (not Standard/WaveNet/Neural2):
+    # https://cloud.google.com/text-to-speech/docs/create-audio-text-streaming
+    # We use Standard (free tier) → one-shot REST into the in-memory HTTP bridge.
     supports_streaming: bool = False
     prosody_limits: ProsodyLimits = GOOGLE_CLOUD_PROSODY
 

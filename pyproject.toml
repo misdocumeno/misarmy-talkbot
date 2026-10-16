@@ -23,6 +23,7 @@ debugpy = "^1.8.20"
 "discord.py" = "^2.4"
 wavelink = "^3.5.2"
 aiohttp = "^3.11"
+azure-cognitiveservices-speech = "^1.42.0"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.11.0"

@@ -337,6 +337,45 @@ files = [
 ]
 
 [[package]]
+name = "azure-cognitiveservices-speech"
+version = "1.52.0"
+description = "Microsoft Cognitive Services Speech SDK for Python"
+optional = false
+python-versions = ">=3.7"
+groups = ["main"]
+files = [
+    {file = "azure_cognitiveservices_speech-1.52.0-py3-none-macosx_10_14_x86_64.whl", hash = "sha256:521814286e6dea4d98ee4561b93ad2f1866ce88441c14ed70e52e78c01797019"},
+    {file = "azure_cognitiveservices_speech-1.52.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:9d0697b29ca7f489508a73c9982ebcbb90e19e6db8677a72da01f02965225d6a"},
+    {file = "azure_cognitiveservices_speech-1.52.0-py3-none-manylinux1_x86_64.whl", hash = "sha256:baf3ae9bdd1e75336a22f859d854a3c0f9dd7078b9144f2d432441e77be9f91c"},
+    {file = "azure_cognitiveservices_speech-1.52.0-py3-none-manylinux2014_aarch64.whl", hash = "sha256:ad4563b39f916da636de7780a00769d355c4d990f9fb2411d5200106489cd5e4"},
+    {file = "azure_cognitiveservices_speech-1.52.0-py3-none-win_amd64.whl", hash = "sha256:e422eb31733864d383a44b94801babc2ca4b48597695c99bf314b92316a3580d"},
+    {file = "azure_cognitiveservices_speech-1.52.0-py3-none-win_arm64.whl", hash = "sha256:fce8d3cfc7d83a95f245bd7004bec7316a72114e2622c7c65b426cc45693ca6a"},
+]
+
+[package.dependencies]
+azure-core = ">=1.33.0"
+
+[[package]]
+name = "azure-core"
+version = "1.41.0"
+description = "Microsoft Azure Core Library for Python"
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "azure_core-1.41.0-py3-none-any.whl", hash = "sha256:522b4011e8180b1a3dcd2024396a4e7fe9ac37fb8597db47163d230b5efe892d"},
+    {file = "azure_core-1.41.0.tar.gz", hash = "sha256:f46ff5dfcd230f25cf1c19e8a34b8dc08a337b2503e268bb600a16c00db8ad5a"},
+]
+
+[package.dependencies]
+requests = ">=2.21.0"
+typing-extensions = ">=4.6.0"
+
+[package.extras]
+aio = ["aiohttp (>=3.0)"]
+tracing = ["opentelemetry-api (>=1.26,<2.0)"]
+
+[[package]]
 name = "certifi"
 version = "2026.2.25"
 description = "Python package for providing Mozilla's CA Bundle."
@@ -1987,4 +2026,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.14"
-content-hash = "eeaa3effd9f783c3b71808cc9f925a5004ff7c90909670d774692437e0b1904a"
+content-hash = "93461bbe8f7b3f218143cbb5e51d3e4b5119dd21c0a28d0fbdc15ca65c14e1bf"

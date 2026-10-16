@@ -1,7 +1,8 @@
-"""Azure Cognitive Services Speech REST (neural voices)."""
+"""Azure Cognitive Services Speech (REST one-shot + SDK audio streaming)."""
 
 from __future__ import annotations
 
+import asyncio
 import time
 import xml.sax.saxutils
 from typing import TYPE_CHECKING
@@ -20,6 +21,8 @@ from misarmy_talkbot.core.playback.tts.provider import MICROSOFT_PROSODY
 from misarmy_talkbot.observability.logger import logger
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from misarmy_talkbot.core.playback.tts.provider import ProsodyLimits
     from misarmy_talkbot.core.playback.tts.settings import AzureSpeechSettings
 
@@ -27,11 +30,14 @@ if TYPE_CHECKING:
 _OUTPUT_FORMAT = 'audio-24khz-48kbitrate-mono-mp3'
 # Issued tokens are valid ~10 minutes; refresh a bit early.
 _TOKEN_TTL_SECONDS = 9 * 60
+_STREAM_CHUNK = 16_384
+_EOF = object()
 
 
 class AzureTtsProvider:
     backend_name: str = 'azure'
     supports_native_prosody: bool = True
+    supports_streaming: bool = True
     prosody_limits: ProsodyLimits = MICROSOFT_PROSODY
 
     def __init__(self, settings: AzureSpeechSettings) -> None:
@@ -75,7 +81,6 @@ class AzureTtsProvider:
                 if response.status == 200:
                     return body
                 if response.status in (401, 403, 429):
-                    # Auth/throttle → quota-ish for edge fallback.
                     detail = body.decode('utf-8', errors='replace')[:200]
                     logger.warning(
                         'azure_tts_quotaish status=%s detail=%s',
@@ -90,6 +95,45 @@ class AzureTtsProvider:
                     f'Azure Speech HTTP {response.status}: {detail}',
                     status=response.status,
                 )
+
+    async def stream_synthesize(
+        self,
+        text: str,
+        *,
+        voice_id: str,
+        pitch: float,
+        speed: float,
+    ) -> AsyncIterator[bytes]:
+        """Yield MP3 chunks as the Speech SDK produces them (first-byte latency).
+
+        Uses ``start_speaking_ssml_async`` + ``AudioDataStream.read_data`` on a
+        worker thread so the asyncio loop stays free. Output format matches the
+        REST path (24 kHz / 48 kbps mono MP3).
+        """
+        ssml = _build_ssml(text, voice_id=voice_id, pitch=pitch, speed=speed)
+        queue: asyncio.Queue[bytes | object] = asyncio.Queue(maxsize=64)
+        loop = asyncio.get_running_loop()
+        worker = loop.run_in_executor(
+            None,
+            _sdk_stream_to_queue,
+            self._settings.key,
+            self._settings.region,
+            ssml,
+            queue,
+            loop,
+        )
+        try:
+            while True:
+                item = await queue.get()
+                if item is _EOF:
+                    break
+                if isinstance(item, BaseException):
+                    raise item
+                assert isinstance(item, bytes)
+                if item:
+                    yield item
+        finally:
+            await worker
 
     async def list_voice_ids(self) -> list[str]:
         if self._voices_cache is not None:
@@ -148,6 +192,93 @@ class AzureTtsProvider:
         self._token = token
         self._token_expires_at = now + _TOKEN_TTL_SECONDS
         return token
+
+
+def _sdk_stream_to_queue(
+    key: str,
+    region: str,
+    ssml: str,
+    queue: asyncio.Queue[bytes | object],
+    loop: asyncio.AbstractEventLoop,
+) -> None:
+    """Blocking Speech SDK reader; pushes chunks onto ``queue`` (thread-safe)."""
+    try:
+        import azure.cognitiveservices.speech as speechsdk
+    except ImportError:
+        _put_sync(
+            queue,
+            loop,
+            AzureSynthesisError(
+                'azure-cognitiveservices-speech is not installed',
+                status=0,
+            ),
+        )
+        _put_sync(queue, loop, _EOF)
+        return
+
+    try:
+        speech_config = speechsdk.SpeechConfig(subscription=key, region=region)
+        speech_config.set_speech_synthesis_output_format(
+            speechsdk.SpeechSynthesisOutputFormat.Audio24Khz48KBitRateMonoMp3
+        )
+        # audio_config=None → audio stays in the result stream (no speaker).
+        synthesizer = speechsdk.SpeechSynthesizer(
+            speech_config=speech_config, audio_config=None
+        )
+        result = synthesizer.start_speaking_ssml_async(ssml).get()
+        if result is None:
+            raise AzureSynthesisError(
+                'Azure SDK returned empty synthesis result', status=0
+            )
+        if result.reason == speechsdk.ResultReason.Canceled:
+            details = result.cancellation_details
+            code = getattr(details, 'error_code', None)
+            detail = str(getattr(details, 'error_details', details) or '')[
+                :200
+            ]
+            logger.warning(
+                'azure_sdk_canceled code=%s detail=%s', code, detail
+            )
+            # Auth / quota / throttle → fall back to edge via router.
+            if code in (
+                speechsdk.CancellationErrorCode.AuthenticationFailure,
+                speechsdk.CancellationErrorCode.TooManyRequests,
+                speechsdk.CancellationErrorCode.Forbidden,
+            ):
+                raise AzureQuotaExceeded(f'Azure SDK canceled: {detail}')
+            raise AzureSynthesisError(
+                f'Azure SDK canceled: {detail}', status=0
+            )
+
+        stream = speechsdk.AudioDataStream(result)
+        buf = bytearray(_STREAM_CHUNK)
+        while True:
+            # SDK stubs annotate audio_buffer as bytes; runtime accepts bytearray.
+            filled = stream.read_data(buf)  # type: ignore[arg-type]
+            if filled <= 0:
+                break
+            _put_sync(queue, loop, bytes(buf[:filled]))
+        _put_sync(queue, loop, _EOF)
+    except (AzureQuotaExceeded, AzureSynthesisError) as exc:
+        _put_sync(queue, loop, exc)
+        _put_sync(queue, loop, _EOF)
+    except Exception as exc:
+        logger.exception('azure_sdk_stream_failed')
+        _put_sync(
+            queue,
+            loop,
+            AzureSynthesisError(f'Azure SDK stream failed: {exc}', status=0),
+        )
+        _put_sync(queue, loop, _EOF)
+
+
+def _put_sync(
+    queue: asyncio.Queue[bytes | object],
+    loop: asyncio.AbstractEventLoop,
+    item: bytes | object,
+) -> None:
+    fut = asyncio.run_coroutine_threadsafe(queue.put(item), loop)
+    fut.result(timeout=120.0)
 
 
 def _build_ssml(
