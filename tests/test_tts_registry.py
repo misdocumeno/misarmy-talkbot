@@ -53,12 +53,15 @@ def test_parse_and_validate_prosody() -> None:
         'es-AR-ElenaNeural',
     )
     registry.validate_prosody('edge/es-AR-ElenaNeural', pitch=1.0, speed=1.0)
+    # Azure SSML window: pitch outside 0.5–1.5 is rejected for edge/.
     with pytest.raises(ProsodyValidationError):
         registry.validate_prosody(
             'edge/es-AR-ElenaNeural', pitch=0.1, speed=1.0
         )
+    # gTTS+ffmpeg: outside Azure window is still OK if positive.
+    registry.validate_prosody('google/es-Spanish', pitch=2.0, speed=0.5)
     with pytest.raises(ProsodyValidationError):
-        registry.validate_prosody('google/es-Spanish', pitch=0.5, speed=5.0)
+        registry.validate_prosody('google/es-Spanish', pitch=0.0, speed=1.0)
 
 
 def test_unknown_prefix() -> None:

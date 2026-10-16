@@ -41,8 +41,9 @@ async def generate_google_tts(
 ) -> io.BytesIO:
     """Legacy path: raw gTTS + ffmpeg effects in one call."""
     _ = aresample
-    assert 0.5 <= atempo <= 6.0
+    # atempo may be outside a single ffmpeg factor; apply_ffmpeg_prosody chains.
     raw = await synthesize_google_raw(text, lang=voice)
+
     pitch = asetrate / 24_000
     speed = atempo * pitch
     return await apply_ffmpeg_prosody(

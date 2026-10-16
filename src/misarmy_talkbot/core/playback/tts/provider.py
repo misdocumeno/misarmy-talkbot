@@ -1,4 +1,25 @@
-"""TTS provider protocol and shared prosody limits (Pydantic-validated)."""
+"""TTS provider protocol and documented prosody limits (Pydantic-validated).
+
+Prosody = pitch and speaking-rate multipliers (``1.0`` = the voice default).
+Validated at config time (``/pitch``, ``/speed``, preset load), not per TTS call.
+
+Sources (not guesswork):
+
+* **Azure / Edge (Microsoft neural SSML)** — Learn docs for ``<prosody>``:
+  pitch must stay within **0.5–1.5×** the original; rate within **0.5–2×**.
+  https://learn.microsoft.com/azure/ai-services/speech-service/speech-synthesis-markup-voice#adjust-prosody
+  ``edge-tts`` sends the same rate/pitch strings to Microsoft's Read Aloud stack,
+  so it shares these bounds. We do not invent wider ranges without a live
+  probe that shows the service accepting them.
+
+* **gTTS + ffmpeg** — gTTS has no prosody API. Pitch/speed are baked with
+  ``asetrate`` / ``atempo``. ffmpeg documents each ``atempo`` factor in
+  **[0.5, 100.0]** and explicitly allows daisy-chaining for products outside
+  that window: https://ffmpeg.org/ffmpeg-filters.html#atempo
+  So any ``pitch > 0`` and ``speed > 0`` is expressible; we reject only
+  non-positive multipliers (undefined sample rate / tempo). Extreme
+  ``asetrate`` values are not capped here until a measured failure mode exists.
+"""
 
 from __future__ import annotations
 
@@ -8,12 +29,12 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class ProsodyLimits(BaseModel):
-    """Allowed pitch/speed multipliers for a provider (1.0 = unchanged)."""
+    """Pitch/speed bounds for a provider (``1.0`` = unchanged)."""
 
-    pitch_min: float = Field(default=0.5, gt=0.0)
-    pitch_max: float = Field(default=1.5, gt=0.0)
-    speed_min: float = Field(default=0.5, gt=0.0)
-    speed_max: float = Field(default=2.0, gt=0.0)
+    pitch_min: float = Field(gt=0.0)
+    pitch_max: float = Field(gt=0.0)
+    speed_min: float = Field(gt=0.0)
+    speed_max: float = Field(gt=0.0)
 
     @model_validator(mode='after')
     def _ordered_bounds(self) -> ProsodyLimits:
@@ -37,32 +58,42 @@ class ProsodyLimits(BaseModel):
 
 
 class GoogleProsodyLimits(ProsodyLimits):
-    """gTTS pitch/speed must keep ffmpeg atempo inside [0.5, 6.0]."""
-
-    atempo_min: float = 0.5
-    atempo_max: float = 6.0
+    """gTTS has no prosody API; bounds come from ffmpeg filter math only."""
 
     def validate_values(self, *, pitch: float, speed: float) -> None:
-        super().validate_values(pitch=pitch, speed=speed)
+        # Upper bounds on the model are placeholders for "unbounded positive";
+        # the real rule is pitch > 0 and speed > 0 (see module docstring).
+        if pitch <= 0.0:
+            raise ValueError(f'pitch must be > 0 (got {pitch})')
+        if speed <= 0.0:
+            raise ValueError(f'speed must be > 0 (got {speed})')
         atempo = speed / pitch
-        if not (self.atempo_min <= atempo <= self.atempo_max):
+        if atempo <= 0.0:
             raise ValueError(
                 f'pitch/speed combination yields atempo={atempo:.3f}; '
-                f'must be between {self.atempo_min} and {self.atempo_max}'
+                'must be > 0 (ffmpeg atempo)'
             )
 
 
+# Azure Speech SSML <prosody> documented multiplier windows (also used by edge).
 MICROSOFT_PROSODY = ProsodyLimits(
     pitch_min=0.5, pitch_max=1.5, speed_min=0.5, speed_max=2.0
 )
+
+# gTTS: no API caps. Placeholders keep the BaseModel valid; validate_values
+# only enforces positivity + expressible atempo (chained per ffmpeg docs).
 GOOGLE_PROSODY = GoogleProsodyLimits(
-    pitch_min=0.5, pitch_max=2.0, speed_min=0.5, speed_max=3.0
+    pitch_min=0.01, pitch_max=1_000.0, speed_min=0.01, speed_max=1_000.0
 )
 
 
 @runtime_checkable
 class TtsProvider(Protocol):
-    """One TTS backend. User-facing namespace may differ from backend name."""
+    """Structural interface for one TTS backend (duck typing + type checkers).
+
+    User-facing voice prefixes (``edge/``, ``google/``) may map to a different
+    ``backend_name`` used for metering (e.g. ``edge/`` → ``azure`` or ``edge``).
+    """
 
     @property
     def backend_name(self) -> str:
