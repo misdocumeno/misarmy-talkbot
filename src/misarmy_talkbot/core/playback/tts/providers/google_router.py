@@ -153,11 +153,19 @@ class GoogleTtsRouter:
                 yield audio
 
     async def list_voice_ids(self) -> list[str]:
+        """Full selectable catalog: every Cloud voice + legacy gTTS ids."""
+        names: set[str] = set()
         try:
-            return await self._cloud.list_voice_ids()
+            names.update(await self._cloud.list_voice_ids())
         except Exception:
-            logger.exception('google_cloud_list_voices_failed; using gtts')
-            return await self._gtts.list_voice_ids()
+            logger.exception('google_cloud_list_voices_failed')
+        try:
+            names.update(await self._gtts.list_voice_ids())
+        except Exception:
+            logger.exception('gtts_list_voices_failed')
+        if not names:
+            raise RuntimeError('no google voices available from cloud or gtts')
+        return sorted(names)
 
     async def _synthesize_gtts(
         self,

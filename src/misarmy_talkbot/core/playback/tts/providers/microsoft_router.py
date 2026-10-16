@@ -131,11 +131,19 @@ class MicrosoftTtsRouter:
                 yield chunk
 
     async def list_voice_ids(self) -> list[str]:
+        """Full selectable catalog: Azure neural + edge-tts short names."""
+        names: set[str] = set()
         try:
-            return await self._azure.list_voice_ids()
+            names.update(await self._azure.list_voice_ids())
         except Exception:
-            logger.exception('azure_list_voices_failed; using edge list')
-            return await self._edge.list_voice_ids()
+            logger.exception('azure_list_voices_failed')
+        try:
+            names.update(await self._edge.list_voice_ids())
+        except Exception:
+            logger.exception('edge_list_voices_failed')
+        if not names:
+            raise RuntimeError('no edge/ voices available from azure or edge')
+        return sorted(names)
 
     async def _stream_edge(
         self,

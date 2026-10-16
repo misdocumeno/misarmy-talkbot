@@ -37,13 +37,15 @@ class GoogleCloudTtsSettings(BaseModel):
     Use a GCP API key with Cloud Text-to-Speech enabled, or leave empty to keep
     the free gTTS scrape path only.
 
-    Default listing tier is Chirp3 (streaming + 1M free chars/month). Soft cap
-    matches that free allotment; over-cap falls back to gTTS.
+    Voice listing defaults to the full Cloud catalog (Standard, WaveNet,
+    Neural2, Chirp, …). Soft cap tracks Chirp/Standard billable use under
+    ``google_cloud`` and falls back to gTTS when exceeded.
     """
 
     api_key: str = ''
-    # Chirp3 | Standard | WaveNet | Neural2 | all — filters list_voices only.
-    voice_tier: str = 'Chirp3'
+    # all | Chirp3 | Standard | WaveNet | Neural2 — filters list_voices only.
+    # Default ``all``: biggest selectable catalog (philosophy for every provider).
+    voice_tier: str = 'all'
     monthly_cap: int = Field(
         default=1_000_000,
         ge=0,
@@ -86,6 +88,6 @@ def load_google_cloud_tts_settings() -> GoogleCloudTtsSettings:
         monthly_cap = 1_000_000
     return GoogleCloudTtsSettings(
         api_key=os.getenv('GOOGLE_TTS_API_KEY', ''),
-        voice_tier=os.getenv('GOOGLE_TTS_VOICE_TIER', 'Chirp3'),
+        voice_tier=os.getenv('GOOGLE_TTS_VOICE_TIER', 'all'),
         monthly_cap=max(0, monthly_cap),
     )
