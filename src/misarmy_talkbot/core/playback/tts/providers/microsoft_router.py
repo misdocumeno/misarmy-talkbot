@@ -12,6 +12,8 @@ from misarmy_talkbot.core.playback.tts.provider import MICROSOFT_PROSODY
 from misarmy_talkbot.observability.logger import logger
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from misarmy_talkbot.core.playback.tts.provider import ProsodyLimits
     from misarmy_talkbot.core.playback.tts.providers.azure_backend import (
         AzureTtsProvider,
@@ -29,6 +31,7 @@ class MicrosoftTtsRouter:
     # Metering uses the leaf backend that actually produced audio.
     backend_name: str = 'azure'
     supports_native_prosody: bool = True
+    supports_streaming: bool = True
     prosody_limits: ProsodyLimits = MICROSOFT_PROSODY
 
     def __init__(
@@ -84,12 +87,71 @@ class MicrosoftTtsRouter:
                 text, voice_id=voice_id, pitch=pitch, speed=speed
             )
 
+    async def stream_synthesize(
+        self,
+        text: str,
+        *,
+        voice_id: str,
+        pitch: float,
+        speed: float,
+    ) -> AsyncIterator[bytes]:
+        """Stream when on edge-tts; Azure REST yields one complete buffer.
+
+        True Azure first-byte streaming needs the Speech SDK; until then REST
+        still avoids disk by publishing the buffer over the in-memory HTTP
+        bridge. Edge-tts chunks stream as Microsoft produces them.
+        """
+        char_count = len(text)
+        if await self._azure_over_cap(char_count):
+            logger.warning(
+                'azure_soft_cap_reached chars=%s cap=%s; falling_back=edge',
+                char_count,
+                self._settings.monthly_cap,
+            )
+            async for chunk in self._stream_edge(
+                text, voice_id=voice_id, pitch=pitch, speed=speed
+            ):
+                yield chunk
+            return
+
+        await self._maybe_warn_near_cap(char_count)
+        try:
+            audio = await self._azure.synthesize(
+                text, voice_id=voice_id, pitch=pitch, speed=speed
+            )
+            self._last_backend = 'azure'
+            self.backend_name = 'azure'
+            if audio:
+                yield audio
+            return
+        except (AzureQuotaExceeded, AzureSynthesisError) as exc:
+            logger.warning('azure_tts_failed_fallback_edge error=%s', exc)
+            async for chunk in self._stream_edge(
+                text, voice_id=voice_id, pitch=pitch, speed=speed
+            ):
+                yield chunk
+
     async def list_voice_ids(self) -> list[str]:
         try:
             return await self._azure.list_voice_ids()
         except Exception:
             logger.exception('azure_list_voices_failed; using edge list')
             return await self._edge.list_voice_ids()
+
+    async def _stream_edge(
+        self,
+        text: str,
+        *,
+        voice_id: str,
+        pitch: float,
+        speed: float,
+    ) -> AsyncIterator[bytes]:
+        self._last_backend = 'edge'
+        self.backend_name = 'edge'
+        async for chunk in self._edge.stream_synthesize(
+            text, voice_id=voice_id, pitch=pitch, speed=speed
+        ):
+            yield chunk
 
     async def _synthesize_edge(
         self,

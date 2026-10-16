@@ -4,8 +4,9 @@ Discord TTS bot. The package lives under `src/misarmy_talkbot`.
 
 Voice playback is delegated to [Lavalink](https://lavalink.dev/) via
 [wavelink](https://github.com/PythonistaGuild/Wavelink). TTS is still generated
-in the bot; only transport and decoding run in Lavalink. Generated audio is
-written to a shared `tmpfs` volume that Lavalink loads by absolute path.
+in the bot; only transport and decoding run in Lavalink. Generated audio stays
+in RAM and is served over an in-process HTTP bridge that Lavalink pulls via
+`http://misarmy_talkbot:8765/tts/<id>`.
 
 ## Why Lavalink and wavelink (not discord.py voice)
 
@@ -25,15 +26,15 @@ Tradeoffs we accepted:
 
 - **Extra service** — a JVM Lavalink container in Compose; ops cost is one more
   process, gain is isolating audio from the bot event loop.
-- **Local files via tmpfs** — TTS MP3s live on a volume mounted in both
-  containers; Lavalink loads `local` sources by path (no bot-side HTTP server).
+- **In-memory HTTP for Lavalink** — the bot publishes MP3 bytes to an aiohttp
+  server; Lavalink's `http` source fetches them. No disk I/O on the TTS hot path.
 - **Less bot-side voice logic** — no in-process FFmpeg for playback, no voice
   health gate or close-code state machine; session resume and transport issues
   are Lavalink/wavelink concerns.
 
 TTS generation remains in Python (Azure Speech and/or edge-tts for `edge/`
-voices, gTTS for `google/`, with ffmpeg pitch/speed only when the provider has
-no native prosody). Only playback moved out of process.
+voices; Google Cloud TTS and/or gTTS for `google/`, with ffmpeg pitch/speed only
+when the provider has no native prosody). Only playback moved out of process.
 
 
 ## Run it (Docker)
@@ -117,10 +118,10 @@ Per-guild flow:
 
 1. Slash command or follow event hits `LavalinkSession.ensure_connected_to(channel_id)`.
 2. The bot calls `channel.connect(cls=wavelink.Player, self_deaf=True)` (or `move_to`).
-3. For each text message, `PlaybackEngine.enqueue(audio)` schedules `audio.process()` as a background task; TTS bytes are written to `${AUDIO_DIR}/<uuid>.mp3` (a tmpfs volume mounted in both containers).
-4. The speak loop waits for the head of the queue to reach `READY`, then loads the file via `wavelink.Pool.fetch_tracks('/tmp/talkbot-audio/<uuid>.mp3')` (plain absolute path; do not use `Playable.search` with `file://` or Lavalink will treat it as a YouTube Music query) and calls `LavalinkSession.play_track()` (minimal PATCH without disabled filters).
+3. For each text message, `PlaybackEngine.enqueue(audio)` schedules `audio.process()` as a background task; TTS bytes are published to the in-memory HTTP server (`publish_tts_http`).
+4. The speak loop waits for the head of the queue to reach `READY`, then loads `wavelink.Pool.fetch_tracks('http://misarmy_talkbot:8765/tts/<id>')` and calls `LavalinkSession.play_track()` (minimal PATCH without disabled filters).
 5. The loop blocks on `_track_done` (an `asyncio.Event` set by `on_wavelink_track_end` / `on_wavelink_track_exception`); no polling, no FFmpeg in the bot process for playback.
-6. After track end, the bot deletes the MP3; the `AudioStorage` janitor sweeps anything orphaned by crashes.
+6. After track end, the bot discards the HTTP session.
 
 There is no voice recovery loop, health gate, or close-code state machine. Lavalink and wavelink own voice transport stability.
 
@@ -172,15 +173,20 @@ fall back to the base locale.
 | `LAVALINK_HOST` | `lavalink` | Hostname of the Lavalink node (compose service name in Docker) |
 | `LAVALINK_PORT` | `2333` | Lavalink HTTP/WebSocket port |
 | `LAVALINK_PASSWORD` | `youshallnotpass` | Shared password between Lavalink and the bot |
-| `AUDIO_DIR` | `/tmp/talkbot-audio` | Shared tmpfs path for generated TTS files |
+| `AUDIO_DIR` | `/tmp/talkbot-audio` | Legacy tmpfs path (janitor only; hot path is HTTP) |
 | `AUDIO_TTL_SECONDS` | `600` | Janitor TTL for orphaned audio files |
 | `AUDIO_JANITOR_INTERVAL_SECONDS` | `120` | Janitor sweep interval |
+| `AUDIO_HTTP_HOST` | `0.0.0.0` | Bind address for the in-memory TTS HTTP server |
+| `AUDIO_HTTP_PORT` | `8765` | Port Lavalink uses to fetch TTS |
+| `AUDIO_HTTP_PUBLIC_BASE` | `http://misarmy_talkbot:8765` | Base URL Lavalink must reach (Compose service name) |
 | `TTS_MAX_CONCURRENT` | `2` | Per-guild bound on concurrent TTS generation tasks (Edge rate-limits bursts) |
 | `EDGE_TTS_MAX_ATTEMPTS` | `4` | Retries for Edge TTS `429` responses |
 | `EDGE_TTS_RETRY_BACKOFF_SECONDS` | `1.5` | Base backoff (seconds) between Edge TTS `429` retries |
 | `AZURE_SPEECH_KEY` | (empty) | Azure Speech subscription key; when set with region, `edge/` uses Azure first |
 | `AZURE_SPEECH_REGION` | (empty) | Azure Speech region (e.g. `eastus`) |
 | `AZURE_SPEECH_MONTHLY_CAP` | `500000` | Soft char cap per UTC calendar month for Azure (`0` = unlimited); over cap falls back to edge-tts |
+| `GOOGLE_TTS_API_KEY` | (empty) | GCP API key with Cloud Text-to-Speech enabled; when set, `google/` uses Cloud first |
+| `GOOGLE_TTS_VOICE_TIER` | `Standard` | Filter for `/voices` listing (`Standard`, `WaveNet`, `Neural2`, or `all`) |
 | `LOG_LEVEL` | `INFO` | stderr log level (bot) |
 | `LANG` | `en_US` (bundled) | Gettext locale for slash descriptions and presence (`es_AR`, custom codes under `config/locales/`, …) |
 | `GRACE_DROP_SECONDS` | `60` | Voice disconnect grace before auto-unfollow |

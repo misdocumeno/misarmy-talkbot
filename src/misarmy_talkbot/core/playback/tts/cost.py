@@ -12,7 +12,8 @@ class ProviderCostModel(BaseModel):
     free_chars_per_month: int = Field(default=0, ge=0)
 
 
-# Neural Azure list price after F0 free tier; gTTS and edge scrape are $0.
+# List prices after free tiers; gTTS and edge scrape are $0.
+# Google Cloud Standard: https://cloud.google.com/text-to-speech/pricing
 DEFAULT_COST_MODELS: dict[str, ProviderCostModel] = {
     'azure': ProviderCostModel(
         usd_per_million_chars=16.0, free_chars_per_month=500_000
@@ -22,6 +23,9 @@ DEFAULT_COST_MODELS: dict[str, ProviderCostModel] = {
     ),
     'google': ProviderCostModel(
         usd_per_million_chars=0.0, free_chars_per_month=0
+    ),
+    'google_cloud': ProviderCostModel(
+        usd_per_million_chars=4.0, free_chars_per_month=0
     ),
 }
 

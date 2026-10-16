@@ -31,6 +31,30 @@ class AzureSpeechSettings(BaseModel):
         return bool(self.key) and bool(self.region)
 
 
+class GoogleCloudTtsSettings(BaseModel):
+    """Google Cloud Text-to-Speech (official API).
+
+    Use a GCP API key with Cloud Text-to-Speech enabled, or leave empty to keep
+    the free gTTS scrape path only.
+    """
+
+    api_key: str = ''
+    # Standard | WaveNet | Neural2 — filters list_voices; synthesis uses the
+    # voice name the user picked (e.g. es-US-Standard-A).
+    voice_tier: str = 'Standard'
+
+    @field_validator('api_key', 'voice_tier', mode='before')
+    @classmethod
+    def _strip_str(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.api_key)
+
+
 def load_azure_speech_settings() -> AzureSpeechSettings:
     """Read Azure Speech settings from process env (empty key → disabled)."""
     raw_cap = os.getenv('AZURE_SPEECH_MONTHLY_CAP', '500000')
@@ -42,4 +66,12 @@ def load_azure_speech_settings() -> AzureSpeechSettings:
         key=os.getenv('AZURE_SPEECH_KEY', ''),
         region=os.getenv('AZURE_SPEECH_REGION', ''),
         monthly_cap=max(0, monthly_cap),
+    )
+
+
+def load_google_cloud_tts_settings() -> GoogleCloudTtsSettings:
+    """Read Google Cloud TTS settings (empty key → gTTS only)."""
+    return GoogleCloudTtsSettings(
+        api_key=os.getenv('GOOGLE_TTS_API_KEY', ''),
+        voice_tier=os.getenv('GOOGLE_TTS_VOICE_TIER', 'Standard'),
     )

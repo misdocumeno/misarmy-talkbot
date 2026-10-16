@@ -20,6 +20,9 @@ services:
       LAVALINK_PORT: "2333"
       LAVALINK_PASSWORD: ${LAVALINK_PASSWORD:-youshallnotpass}
       AUDIO_DIR: /tmp/talkbot-audio
+      AUDIO_HTTP_HOST: "0.0.0.0"
+      AUDIO_HTTP_PORT: "8765"
+      AUDIO_HTTP_PUBLIC_BASE: http://misarmy_talkbot:8765
     restart: unless-stopped
 
   lavalink:

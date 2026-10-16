@@ -14,6 +14,7 @@ from misarmy_talkbot.core.follow.registry import FollowRegistry
 from misarmy_talkbot.core.playback.audio import AudioMessage, AudioState
 from misarmy_talkbot.core.playback.tts.registry import TtsRegistry
 from misarmy_talkbot.core.session.registry import GuildSessionRegistry
+from misarmy_talkbot.infra.audio_http import AudioHttpServer
 from misarmy_talkbot.infra.audio_storage import AudioStorage
 from misarmy_talkbot.infra.database.tts_usage import TtsUsageStore
 from misarmy_talkbot.observability.metrics import MetricsRegistry
@@ -25,6 +26,7 @@ def reset_singletons() -> None:
     GuildSessionRegistry._instance = None
     MetricsRegistry._instance = None
     AudioStorage._instance = None
+    AudioHttpServer.reset()
     TtsRegistry.reset()
     TtsUsageStore.reset()
 
@@ -130,21 +132,18 @@ def make_discord_message(
 
 
 def ready_audio_message(
-    content: str = 'test', track_path: Path | None = None
+    content: str = 'test', track_url: str | None = None
 ) -> AudioMessage:
-    """AudioMessage that skips TTS/database (already READY with a track path)."""
+    """AudioMessage that skips TTS/database (already READY with a track URL)."""
     message = make_discord_message(content=content)
-    storage = AudioStorage._instance or install_temp_audio_storage()
+    http = AudioHttpServer.instance()
     with patch(
         'misarmy_talkbot.core.playback.audio.apply_edits', return_value=content
     ):
-        audio = AudioMessage(message, storage=storage)
+        audio = AudioMessage(message, http_server=http)
     audio.state = AudioState.READY
-    if track_path is None:
-        track_path = storage.directory / f'{message.id}.mp3'
-        track_path.write_bytes(b'\x00' * 16)
-    audio.track_path = track_path
-    audio.audio_bytes = track_path.stat().st_size
+    audio.track_url = track_url or f'http://127.0.0.1:8765/tts/{message.id}'
+    audio.audio_bytes = 16
     return audio
 
 

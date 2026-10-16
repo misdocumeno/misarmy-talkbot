@@ -32,7 +32,12 @@ def _reset_registry() -> Generator[None, None, None]:
     TtsUsageStore.reset()
 
 
-def test_build_default_without_azure(tmp_path: Path) -> None:
+def test_build_default_without_azure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv('AZURE_SPEECH_KEY', raising=False)
+    monkeypatch.delenv('AZURE_SPEECH_REGION', raising=False)
+    monkeypatch.delenv('GOOGLE_TTS_API_KEY', raising=False)
     store = TtsUsageStore(jsonl_dir=tmp_path / 'tts-usage')
     TtsUsageStore.set_instance(store)
     registry = TtsRegistry.build_default(store)
@@ -40,6 +45,22 @@ def test_build_default_without_azure(tmp_path: Path) -> None:
     assert registry.has('google')
     assert isinstance(registry.get('edge'), EdgeTtsProvider)
     assert isinstance(registry.get('google'), GoogleTtsProvider)
+
+
+def test_build_default_with_google_cloud(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv('AZURE_SPEECH_KEY', raising=False)
+    monkeypatch.delenv('AZURE_SPEECH_REGION', raising=False)
+    monkeypatch.setenv('GOOGLE_TTS_API_KEY', 'test-key')
+    from misarmy_talkbot.core.playback.tts.providers.google_router import (
+        GoogleTtsRouter,
+    )
+
+    store = TtsUsageStore(jsonl_dir=tmp_path / 'tts-usage')
+    TtsUsageStore.set_instance(store)
+    registry = TtsRegistry.build_default(store)
+    assert isinstance(registry.get('google'), GoogleTtsRouter)
 
 
 def test_parse_and_validate_prosody() -> None:

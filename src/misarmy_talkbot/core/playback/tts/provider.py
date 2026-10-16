@@ -19,6 +19,11 @@ Sources (not guesswork):
   So any ``pitch > 0`` and ``speed > 0`` is expressible; we reject only
   non-positive multipliers (undefined sample rate / tempo). Extreme
   ``asetrate`` values are not capped here until a measured failure mode exists.
+
+* **Google Cloud TTS** — ``AudioConfig.speakingRate`` ∈ **[0.25, 4.0]** and
+  ``pitch`` ∈ **[-20, 20]** semitones (API). User-facing multipliers map pitch
+  via ``(pitch - 1) * 12`` st; see ``GOOGLE_CLOUD_PROSODY`` in the cloud backend.
+  https://cloud.google.com/text-to-speech/docs/reference/rest/v1/text/synthesize
 """
 
 from __future__ import annotations

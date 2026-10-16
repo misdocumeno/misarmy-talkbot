@@ -57,15 +57,38 @@ class TtsRegistry:
 
     @classmethod
     def build_default(cls, usage_store: TtsUsageStore) -> TtsRegistry:
-        """Wire Google + Microsoft (Azure and/or edge-tts) from env.
+        """Wire Google + Microsoft backends from env.
 
-        Azure provider imports stay inside the ``if`` so a bot without Azure
-        credentials never loads that module (lazy optional dependency — normal
-        in Python when a path is env-gated).
+        Azure / Google Cloud imports stay inside ``if`` so a bot without those
+        credentials never loads the paid modules.
         """
-        providers: dict[str, TtsProvider] = {
-            'google': GoogleTtsProvider(),
-        }
+        from misarmy_talkbot.core.playback.tts.settings import (
+            load_google_cloud_tts_settings,
+        )
+
+        gtts_provider = GoogleTtsProvider()
+        google_settings = load_google_cloud_tts_settings()
+        providers: dict[str, TtsProvider] = {}
+        if google_settings.enabled:
+            from misarmy_talkbot.core.playback.tts.providers.google_cloud_backend import (
+                GoogleCloudTtsProvider,
+            )
+            from misarmy_talkbot.core.playback.tts.providers.google_router import (
+                GoogleTtsRouter,
+            )
+
+            providers['google'] = GoogleTtsRouter(
+                cloud=GoogleCloudTtsProvider(google_settings),
+                gtts=gtts_provider,
+            )
+            logger.info(
+                'tts_registry google_cloud_enabled tier=%s',
+                google_settings.voice_tier,
+            )
+        else:
+            providers['google'] = gtts_provider
+            logger.info('tts_registry google_cloud_disabled using_gtts')
+
         azure_settings = load_azure_speech_settings()
         edge_provider = EdgeTtsProvider()
         if azure_settings.enabled:

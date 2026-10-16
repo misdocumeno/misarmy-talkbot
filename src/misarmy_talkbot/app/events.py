@@ -19,6 +19,7 @@ from misarmy_talkbot.core.follow.grace import DisconnectSupervisor
 from misarmy_talkbot.core.follow.registry import FollowRegistry
 from misarmy_talkbot.core.playback.tts.registry import TtsRegistry
 from misarmy_talkbot.core.session.registry import GuildSessionRegistry
+from misarmy_talkbot.infra.audio_http import AudioHttpServer
 from misarmy_talkbot.infra.audio_storage import AudioStorage
 from misarmy_talkbot.infra.config.command import on_config_mention
 from misarmy_talkbot.infra.config.config import (
@@ -68,6 +69,7 @@ async def _first_boot(bot: commands.Bot) -> None:
     try:
         await create_tables()
         TtsRegistry.build_default(TtsUsageStore.instance())
+        await AudioHttpServer.instance().start()
         await _load_guild_config(None)
 
         await apply_global_presence(bot)
@@ -80,6 +82,7 @@ async def _first_boot(bot: commands.Bot) -> None:
             ),
             name='metrics_snapshot_loop',
         )
+        # Orphan sweep for any leftover files from older tmpfs deploys.
         asyncio.create_task(
             AudioStorage.instance().janitor_loop(audio_janitor_stop_event()),
             name='audio_janitor',

@@ -1,9 +1,7 @@
-"""One Discord message represented as TTS audio on the shared tmpfs volume.
+"""One Discord message represented as TTS audio served over in-memory HTTP.
 
-Synthesis runs in memory (``bytes`` / ``BytesIO``). The only filesystem write is
-to ``AUDIO_DIR`` (tmpfs in Docker), so Lavalink can load a local path. That is
-RAM-backed shared memory between containers — not persistent disk. The engine
-deletes the file after playback; the janitor only sweeps crash orphans.
+Synthesis runs in memory. Audio is published to ``AudioHttpServer`` so Lavalink
+can ``GET`` an ``http://`` URL — no filesystem write on the hot path.
 """
 
 from __future__ import annotations
@@ -16,8 +14,8 @@ from typing import TYPE_CHECKING, cast
 from misarmy_talkbot.core.playback.tts.edits import apply_edits
 from misarmy_talkbot.core.playback.tts.exceptions import NoTokensError
 from misarmy_talkbot.core.playback.tts.registry import TtsRegistry
-from misarmy_talkbot.core.playback.tts.synthesize import synthesize_mp3
-from misarmy_talkbot.infra.audio_storage import AudioStorage
+from misarmy_talkbot.core.playback.tts.stream import publish_tts_http
+from misarmy_talkbot.infra.audio_http import AudioHttpServer
 from misarmy_talkbot.infra.database.tts_usage import (
     TtsUsageStore,
     UsageRecord,
@@ -26,9 +24,9 @@ from misarmy_talkbot.infra.database.voice import get_voice
 from misarmy_talkbot.observability.logger import logger
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     import discord
+
+    from misarmy_talkbot.infra.audio_http import AudioStreamSession
 
 
 class AudioState(Enum):
@@ -39,34 +37,35 @@ class AudioState(Enum):
 
 
 class AudioMessage:
-    """Lifecycle for one chat message: text edits → TTS bytes → tmpfs MP3.
+    """Lifecycle for one chat message: text edits → TTS → HTTP URL for Lavalink.
 
     ``_generation`` invalidates in-flight ``process()`` after edit/delete so a
-    stale synthesis cannot overwrite newer audio or resurrect a discarded file.
+    stale synthesis cannot overwrite newer audio or resurrect a discarded stream.
     """
 
     content: str
     original: discord.Message
     timestamp: float
     state: AudioState
-    track_path: Path | None
+    track_url: str | None
     audio_bytes: int
 
     def __init__(
         self,
         message: discord.Message,
         *,
-        storage: AudioStorage | None = None,
+        http_server: AudioHttpServer | None = None,
         usage_store: TtsUsageStore | None = None,
     ) -> None:
         self.state = AudioState.PENDING
         self.original = message
         self.timestamp = time.time()
         self.content = apply_edits(message)
-        self.track_path = None
+        self.track_url = None
         self.audio_bytes = 0
+        self._session: AudioStreamSession | None = None
         self._generation = 0
-        self._storage = storage or AudioStorage.instance()
+        self._http = http_server or AudioHttpServer.instance()
         self._usage_store = usage_store or TtsUsageStore.instance()
 
     def invalidate(self) -> None:
@@ -74,7 +73,7 @@ class AudioMessage:
         self._generation += 1
 
     async def process(self) -> None:
-        """Generate TTS audio and write it to tmpfs; sets ``state`` accordingly."""
+        """Generate TTS and publish it over HTTP; sets ``state`` accordingly."""
         generation = self._generation
         author = cast('discord.Member', self.original.author)
         self.state = AudioState.PROCESSING
@@ -92,17 +91,21 @@ class AudioMessage:
         error_message: str | None = None
         backend_name = 'unknown'
         latency_ms = 0
+        session: AudioStreamSession | None = None
 
         try:
-            result = await synthesize_mp3(
+            published = await publish_tts_http(
                 self.content,
                 voice=voice_settings.voice,
                 pitch=voice_settings.pitch,
                 speed=voice_settings.speed,
+                http_server=self._http,
             )
-            backend_name = result.backend_name
-            latency_ms = result.latency_ms
-            payload = result.audio
+            backend_name = published.backend_name
+            latency_ms = published.latency_ms
+            session = published.session
+            track_url = published.url
+            audio_bytes = session.bytes_pushed
         except asyncio.CancelledError:
             raise
         except NoTokensError:
@@ -156,15 +159,18 @@ class AudioMessage:
             )
             return
 
+        assert session is not None  # set on success path above
         if generation != self._generation:
+            self._http.discard(session.stream_id)
             return
 
-        if not payload:
+        if audio_bytes <= 0:
             logger.warning(
                 'tts_empty_audio content=%r voice=%s',
                 self.content,
                 voice_settings.voice,
             )
+            self._http.discard(session.stream_id)
             self.state = AudioState.FAILED
             await self._record_usage(
                 guild_id=guild_id,
@@ -178,13 +184,9 @@ class AudioMessage:
             )
             return
 
-        track_path = await self._storage.write(payload)
-        if generation != self._generation:
-            await self._storage.delete(track_path)
-            return
-
-        self.track_path = track_path
-        self.audio_bytes = len(payload)
+        self._session = session
+        self.track_url = track_url
+        self.audio_bytes = audio_bytes
         self.state = AudioState.READY
         await self._record_usage(
             guild_id=guild_id,
@@ -197,10 +199,10 @@ class AudioMessage:
             error=None,
         )
         logger.debug(
-            'tts_ready content=%r bytes=%s path=%s backend=%s',
+            'tts_ready content=%r bytes=%s url=%s backend=%s',
             self.content,
             self.audio_bytes,
-            self.track_path,
+            self.track_url,
             backend_name,
         )
 
@@ -230,10 +232,10 @@ class AudioMessage:
         )
 
     async def edit(self, message: discord.Message) -> None:
-        """Reset to PENDING with new content; previously-written file is dropped."""
+        """Reset to PENDING with new content; drop any published HTTP session."""
         self.invalidate()
-        await self._storage.delete(self.track_path)
-        self.track_path = None
+        await self._discard_session()
+        self.track_url = None
         self.audio_bytes = 0
         self.state = AudioState.PENDING
         self.original = message
@@ -241,11 +243,16 @@ class AudioMessage:
         self.content = apply_edits(message)
 
     async def cleanup(self) -> None:
-        """Remove the tmpfs MP3 (idempotent) and invalidate in-flight work."""
+        """Drop the HTTP session (idempotent) and invalidate in-flight work."""
         self.invalidate()
-        if self.track_path is not None:
-            await self._storage.delete(self.track_path)
-            self.track_path = None
+        await self._discard_session()
+        self.track_url = None
+
+    async def _discard_session(self) -> None:
+        session = self._session
+        self._session = None
+        if session is not None:
+            self._http.discard(session.stream_id)
 
     def __eq__(self, other: object) -> bool:
         from discord import Message  # local import to keep boot-order simple

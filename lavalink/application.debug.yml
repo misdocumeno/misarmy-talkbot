@@ -15,14 +15,14 @@ lavalink:
   server:
     password: "${LAVALINK_SERVER_PASSWORD:youshallnotpass}"
     sources:
-      local: true
+      local: false
       youtube: false
       bandcamp: false
       soundcloud: false
       twitch: false
       vimeo: false
       nico: false
-      http: false
+      http: true
     filters:
       timescale: true
       volume: true

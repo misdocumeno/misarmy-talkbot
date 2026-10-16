@@ -6,7 +6,7 @@ Two cooperating concerns:
    playback so a long current track does not delay future TTS work. A per-guild
    semaphore bounds the concurrent TTS workload.
 2. ``_speak_loop`` waits for the head of the queue to reach ``READY``, joins the
-   master's voice channel via Lavalink, and asks the player to play the file.
+   master's voice channel via Lavalink, and asks the player to play the HTTP URL.
    It blocks on ``_track_done`` (set by ``on_track_end`` / ``on_track_exception``)
    instead of polling - Lavalink owns the "track finished" signal.
 
@@ -26,7 +26,6 @@ import wavelink
 from misarmy_talkbot.core.follow.registry import FollowRegistry
 from misarmy_talkbot.core.playback.audio import AudioState
 from misarmy_talkbot.core.playback.queue import MessageQueue
-from misarmy_talkbot.infra.audio_storage import AudioStorage
 from misarmy_talkbot.observability.logger import logger
 
 if TYPE_CHECKING:
@@ -190,14 +189,18 @@ class PlaybackEngine:
         """
         for queued in self._queue:
             if queued.original == message:
+                if queued is self._current:
+                    return
                 await queued.edit(message)
                 self._spawn_generation(queued)
                 break
 
     async def on_message_delete(self, message: discord.Message) -> None:
-        """Drop a queued message; cancel any in-flight TTS for it."""
+        """Drop a queued message; leave the currently playing track alone."""
         for queued in list(self._queue):
             if queued.original == message:
+                if queued is self._current:
+                    return
                 previous = self._gen_by_message.get(message.id)
                 if previous is not None and not previous.done():
                     previous.cancel()
@@ -352,23 +355,18 @@ class PlaybackEngine:
             await self._drop_head(audio)
             return
 
-        if audio.track_path is None:
+        if not audio.track_url:
             await self._drop_head(audio)
             return
 
-        # Lavalink local source wants a plain absolute path, not file:// and not
-        # Playable.search (which would prefix ytmsearch: because file:/// has no
-        # URL host in yarl).
-        storage = AudioStorage.instance()
+        # Lavalink http source: plain URL (bot serves MP3 from RAM).
         try:
-            tracks = await wavelink.Pool.fetch_tracks(
-                storage.lavalink_identifier(audio.track_path)
-            )
+            tracks = await wavelink.Pool.fetch_tracks(audio.track_url)
         except wavelink.LavalinkLoadException:
             logger.exception(
-                'speak_load_failed guild_id=%s path=%s',
+                'speak_load_failed guild_id=%s url=%s',
                 self.guild_id,
-                audio.track_path,
+                audio.track_url,
             )
             await self._announcer.announce(
                 audio.original,
@@ -391,9 +389,9 @@ class PlaybackEngine:
 
         if not tracks or isinstance(tracks, wavelink.Playlist):
             logger.warning(
-                'speak_no_tracks guild_id=%s path=%s',
+                'speak_no_tracks guild_id=%s url=%s',
                 self.guild_id,
-                audio.track_path,
+                audio.track_url,
             )
             await self._drop_head(audio)
             return

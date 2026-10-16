@@ -29,6 +29,7 @@ from misarmy_talkbot.app.voice_sync import reconcile_master_channel
 from misarmy_talkbot.core.follow.grace import DisconnectSupervisor
 from misarmy_talkbot.core.follow.registry import FollowRegistry
 from misarmy_talkbot.core.session.registry import GuildSessionRegistry
+from misarmy_talkbot.infra.audio_http import AudioHttpServer
 from misarmy_talkbot.observability.logger import logger
 
 
@@ -130,6 +131,10 @@ def run_bot() -> None:
                 await wavelink.Pool.close()
             except Exception:
                 logger.exception('shutdown_lavalink_close')
+            try:
+                await AudioHttpServer.instance().stop()
+            except Exception:
+                logger.exception('shutdown_audio_http')
             await bot.close()
 
         bot.loop.create_task(_close())

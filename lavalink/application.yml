@@ -12,15 +12,15 @@ lavalink:
   server:
     password: "${LAVALINK_SERVER_PASSWORD:youshallnotpass}"
     sources:
-      # Local files: bot passes absolute paths under the shared tmpfs mount.
-      local: true
+      # HTTP: bot serves TTS MP3 from RAM at http://misarmy_talkbot:8765/tts/...
+      local: false
       youtube: false
       bandcamp: false
       soundcloud: false
       twitch: false
       vimeo: false
       nico: false
-      http: false
+      http: true
     filters:
       timescale: true
       volume: true
