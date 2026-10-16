@@ -1,3 +1,5 @@
+"""Async SQLAlchemy engine/session for the on-disk SQLite settings database."""
+
 import importlib
 
 from sqlalchemy.ext.asyncio import (

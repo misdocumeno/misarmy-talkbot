@@ -1,3 +1,5 @@
+"""In-memory follow graph: who the bot follows per guild, and who is master."""
+
 from __future__ import annotations
 
 import time

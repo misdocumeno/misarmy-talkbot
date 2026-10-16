@@ -1,3 +1,5 @@
+"""Text pre-processing before TTS (replacements, emoji names, etc.)."""
+
 import discord
 import regex
 

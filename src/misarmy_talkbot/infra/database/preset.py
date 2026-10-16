@@ -1,3 +1,5 @@
+"""Saved voice presets (name → voice/pitch/speed) per guild user."""
+
 import discord
 from sqlalchemy import UniqueConstraint, insert
 from sqlalchemy.future import select

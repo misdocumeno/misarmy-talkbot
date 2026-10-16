@@ -25,7 +25,12 @@ if TYPE_CHECKING:
 
 
 class TtsRegistry:
-    """Prefix → provider. Built once at startup; tests may ``reset``."""
+    """Maps user-facing voice prefixes to concrete ``TtsProvider`` backends.
+
+    Built once at bot startup via ``build_default``. Unit tests call ``reset`` /
+    ``set_instance`` so each test gets an isolated registry without sharing
+    process-wide Azure/edge wiring from a previous case.
+    """
 
     _instance: TtsRegistry | None = None
 
@@ -42,15 +47,22 @@ class TtsRegistry:
 
     @classmethod
     def reset(cls) -> None:
+        """Clear the process singleton (tests only)."""
         cls._instance = None
 
     @classmethod
     def set_instance(cls, registry: TtsRegistry) -> None:
+        """Install a registry built by tests or alternate composition roots."""
         cls._instance = registry
 
     @classmethod
     def build_default(cls, usage_store: TtsUsageStore) -> TtsRegistry:
-        """Wire Google + Microsoft (Azure and/or edge-tts) from env."""
+        """Wire Google + Microsoft (Azure and/or edge-tts) from env.
+
+        Azure provider imports stay inside the ``if`` so a bot without Azure
+        credentials never loads that module (lazy optional dependency — normal
+        in Python when a path is env-gated).
+        """
         providers: dict[str, TtsProvider] = {
             'google': GoogleTtsProvider(),
         }

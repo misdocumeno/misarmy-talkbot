@@ -4,6 +4,15 @@ TODO.md
 /logs/
 /config
 
+# Local SSH keys for prod access (never commit)
+.ssh/
+**/.ssh/
+*.pem
+id_ed25519*
+id_*_talkbot_prod*
+
+
+
 # Tooling caches
 .pytest_cache/
 .ruff_cache/

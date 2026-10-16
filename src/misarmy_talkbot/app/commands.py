@@ -1,3 +1,5 @@
+"""Slash-command registration for the Discord bot tree."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal, cast

@@ -1,3 +1,5 @@
+"""Guild and global JSONC config load/save (Pydantic-validated)."""
+
 from pathlib import Path
 
 import aiofiles

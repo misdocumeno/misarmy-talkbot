@@ -1,3 +1,5 @@
+"""Per-guild user voice preferences (provider/voice id, pitch, speed)."""
+
 import discord
 from sqlalchemy import UniqueConstraint, insert, update
 from sqlalchemy.future import select

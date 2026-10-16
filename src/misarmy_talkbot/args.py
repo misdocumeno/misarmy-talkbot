@@ -1,6 +1,9 @@
+"""CLI argument parser for process-level knobs (locale, log level, guild ids)."""
+
 import argparse
 
 DEFAULT_DEV_GUILD = 814851486621106198
+
 
 parser = argparse.ArgumentParser(description='A text-to-speech discord bot.')
 choices = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']

@@ -1,3 +1,5 @@
+"""Process-wide colored logging to stderr."""
+
 import logging
 import os
 import sys

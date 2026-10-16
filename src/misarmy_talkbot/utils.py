@@ -1,3 +1,5 @@
+"""Shared Discord helpers: ephemeral replies, voice autocomplete, small utils."""
+
 from typing import cast
 
 import discord
