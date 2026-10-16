@@ -16,6 +16,7 @@ from misarmy_talkbot.args import args
 from misarmy_talkbot.core.playback.tts.exceptions import ProsodyValidationError
 from misarmy_talkbot.core.playback.tts.settings import (
     load_azure_speech_settings,
+    load_google_cloud_tts_settings,
 )
 from misarmy_talkbot.core.session.registry import GuildSessionRegistry
 from misarmy_talkbot.infra.config.command import config_command
@@ -540,10 +541,12 @@ def register_commands(bot: commands.Bot) -> None:
             return
         clamped_days = max(1, min(days, 90))
         azure_settings = load_azure_speech_settings()
+        google_settings = load_google_cloud_tts_settings()
         report = await TtsUsageStore.instance().build_report(
             days=clamped_days,
             guild_id=interaction.guild.id,
             azure_month_cap=azure_settings.monthly_cap,
+            google_cloud_month_cap=google_settings.monthly_cap,
         )
         embed = discord.Embed(
             title=translate('tts_usage_cmd_title', interaction.guild).format(
@@ -569,14 +572,26 @@ def register_commands(bot: commands.Bot) -> None:
                 value=provider_lines,
                 inline=False,
             )
-        cap_label = (
+        azure_cap_label = (
             str(report.azure_month_cap)
             if report.azure_month_cap > 0
             else 'unlimited'
         )
         embed.add_field(
             name=translate('tts_usage_cmd_azure_month', interaction.guild),
-            value=f'{report.azure_month_chars} / {cap_label}',
+            value=f'{report.azure_month_chars} / {azure_cap_label}',
+            inline=False,
+        )
+        google_cap_label = (
+            str(report.google_cloud_month_cap)
+            if report.google_cloud_month_cap > 0
+            else 'unlimited'
+        )
+        embed.add_field(
+            name=translate(
+                'tts_usage_cmd_google_cloud_month', interaction.guild
+            ),
+            value=(f'{report.google_cloud_month_chars} / {google_cap_label}'),
             inline=False,
         )
         if report.top_guilds:

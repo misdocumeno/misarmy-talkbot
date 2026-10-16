@@ -1,47 +1,54 @@
-"""Google Cloud Text-to-Speech REST (Standard / WaveNet / Neural2)."""
+"""Google Cloud Text-to-Speech (REST + Chirp 3 HD streaming)."""
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import io
 from typing import TYPE_CHECKING
 
 import aiohttp
 
+from misarmy_talkbot.core.playback.tts.effects import apply_ffmpeg_prosody
 from misarmy_talkbot.core.playback.tts.provider import ProsodyLimits
 from misarmy_talkbot.observability.logger import logger
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from misarmy_talkbot.core.playback.tts.settings import (
         GoogleCloudTtsSettings,
     )
 
-# Official AudioConfig ranges:
+# Official AudioConfig ranges (Standard / WaveNet / Neural2):
 # https://cloud.google.com/text-to-speech/docs/reference/rest/v1/text/synthesize
-# speakingRate ∈ [0.25, 4.0], pitch ∈ [-20.0, 20.0] semitones.
+# Chirp 3 HD: no pitch/rate on REST; streaming speaks OGG_OPUS only.
 GOOGLE_CLOUD_PROSODY = ProsodyLimits(
     pitch_min=0.25, pitch_max=3.0, speed_min=0.25, speed_max=4.0
 )
 
 _SYNTHESIZE_URL = 'https://texttospeech.googleapis.com/v1/text:synthesize'
 _VOICES_URL = 'https://texttospeech.googleapis.com/v1/voices'
+_EOF = object()
 
 
 def _pitch_to_semitones(pitch: float) -> float:
-    """Map multiplier (1.0 = default) to Google semitone offset.
-
-    Roughly ±1.0 on the multiplier → ±12 st (one octave). Clamped to API max.
-    """
+    """Map multiplier (1.0 = default) to Google semitone offset."""
     semitones = (pitch - 1.0) * 12.0
     return max(-20.0, min(20.0, semitones))
+
+
+def is_chirp_voice(voice_id: str) -> bool:
+    """True for Chirp / Chirp3 HD voice short names."""
+    lower = voice_id.lower()
+    return 'chirp3' in lower or 'chirp-hd' in lower or '-chirp' in lower
 
 
 class GoogleCloudTtsProvider:
     backend_name: str = 'google_cloud'
     supports_native_prosody: bool = True
-    # Google StreamingSynthesize is Chirp 3 HD only (not Standard/WaveNet/Neural2):
-    # https://cloud.google.com/text-to-speech/docs/create-audio-text-streaming
-    # We use Standard (free tier) → one-shot REST into the in-memory HTTP bridge.
-    supports_streaming: bool = False
+    # Chirp 3 HD supports StreamingSynthesize; other tiers stay one-shot REST.
+    supports_streaming: bool = True
     prosody_limits: ProsodyLimits = GOOGLE_CLOUD_PROSODY
 
     def __init__(self, settings: GoogleCloudTtsSettings) -> None:
@@ -59,16 +66,16 @@ class GoogleCloudTtsProvider:
         speed: float,
     ) -> bytes:
         language_code = _language_code_from_voice(voice_id)
-        speaking_rate = max(0.25, min(4.0, speed))
-        pitch_st = _pitch_to_semitones(pitch)
+        audio_config: dict[str, object] = {'audioEncoding': 'MP3'}
+        # Chirp rejects pitch/speakingRate on AudioConfig; apply ffmpeg after.
+        chirp = is_chirp_voice(voice_id)
+        if not chirp:
+            audio_config['speakingRate'] = max(0.25, min(4.0, speed))
+            audio_config['pitch'] = _pitch_to_semitones(pitch)
         body = {
             'input': {'text': text},
             'voice': {'languageCode': language_code, 'name': voice_id},
-            'audioConfig': {
-                'audioEncoding': 'MP3',
-                'speakingRate': speaking_rate,
-                'pitch': pitch_st,
-            },
+            'audioConfig': audio_config,
         }
         params = {'key': self._settings.api_key}
         async with aiohttp.ClientSession() as session:
@@ -84,7 +91,58 @@ class GoogleCloudTtsProvider:
         encoded = payload.get('audioContent')
         if not isinstance(encoded, str) or not encoded:
             raise RuntimeError('Google Cloud TTS returned empty audioContent')
-        return base64.b64decode(encoded)
+        audio = base64.b64decode(encoded)
+        if chirp and (pitch != 1.0 or speed != 1.0):
+            buffer = await apply_ffmpeg_prosody(
+                io.BytesIO(audio), pitch=pitch, speed=speed
+            )
+            audio = buffer.getvalue()
+        return audio
+
+    async def stream_synthesize(
+        self,
+        text: str,
+        *,
+        voice_id: str,
+        pitch: float,
+        speed: float,
+    ) -> AsyncIterator[bytes]:
+        """Stream Chirp 3 HD as OGG Opus chunks; otherwise one-shot MP3.
+
+        Google streaming encodings are PCM/ALAW/MULAW/OGG_OPUS only (no MP3).
+        Chirp also has no pitch API; non-default prosody uses one-shot + ffmpeg.
+        """
+        if not is_chirp_voice(voice_id) or pitch != 1.0 or speed != 1.0:
+            audio = await self.synthesize(
+                text, voice_id=voice_id, pitch=pitch, speed=speed
+            )
+            if audio:
+                yield audio
+            return
+
+        queue: asyncio.Queue[bytes | object] = asyncio.Queue(maxsize=64)
+        loop = asyncio.get_running_loop()
+        worker = loop.run_in_executor(
+            None,
+            _chirp_stream_to_queue,
+            self._settings.api_key,
+            text,
+            voice_id,
+            queue,
+            loop,
+        )
+        try:
+            while True:
+                item = await queue.get()
+                if item is _EOF:
+                    break
+                if isinstance(item, BaseException):
+                    raise item
+                assert isinstance(item, bytes)
+                if item:
+                    yield item
+        finally:
+            await worker
 
     async def list_voice_ids(self) -> list[str]:
         if self._voices_cache is not None:
@@ -118,8 +176,71 @@ class GoogleCloudTtsProvider:
         return list(self._voices_cache)
 
 
+def _chirp_stream_to_queue(
+    api_key: str,
+    text: str,
+    voice_id: str,
+    queue: asyncio.Queue[bytes | object],
+    loop: asyncio.AbstractEventLoop,
+) -> None:
+    """Blocking Chirp StreamingSynthesize → async queue (OGG Opus chunks)."""
+    try:
+        from google.api_core.client_options import ClientOptions
+        from google.cloud import texttospeech
+    except ImportError:
+        _put_sync(
+            queue,
+            loop,
+            RuntimeError('google-cloud-texttospeech is not installed'),
+        )
+        _put_sync(queue, loop, _EOF)
+        return
+
+    try:
+        client = texttospeech.TextToSpeechClient(
+            client_options=ClientOptions(api_key=api_key)
+        )
+        language_code = _language_code_from_voice(voice_id)
+        streaming_config = texttospeech.StreamingSynthesizeConfig(
+            voice=texttospeech.VoiceSelectionParams(
+                name=voice_id,
+                language_code=language_code,
+            ),
+            streaming_audio_config=texttospeech.StreamingAudioConfig(
+                audio_encoding=texttospeech.AudioEncoding.OGG_OPUS,
+            ),
+        )
+
+        def request_generator() -> object:
+            yield texttospeech.StreamingSynthesizeRequest(
+                streaming_config=streaming_config
+            )
+            yield texttospeech.StreamingSynthesizeRequest(
+                input=texttospeech.StreamingSynthesisInput(text=text)
+            )
+
+        for response in client.streaming_synthesize(request_generator()):
+            chunk = response.audio_content
+            if chunk:
+                _put_sync(queue, loop, bytes(chunk))
+        _put_sync(queue, loop, _EOF)
+    except Exception as exc:
+        logger.exception('google_chirp_stream_failed')
+        _put_sync(queue, loop, RuntimeError(f'Chirp stream failed: {exc}'))
+        _put_sync(queue, loop, _EOF)
+
+
+def _put_sync(
+    queue: asyncio.Queue[bytes | object],
+    loop: asyncio.AbstractEventLoop,
+    item: bytes | object,
+) -> None:
+    fut = asyncio.run_coroutine_threadsafe(queue.put(item), loop)
+    fut.result(timeout=120.0)
+
+
 def _language_code_from_voice(voice_id: str) -> str:
-    """``es-US-Standard-A`` → ``es-US``."""
+    """``es-US-Chirp3-HD-Aoede`` → ``es-US``."""
     parts = voice_id.split('-')
     if len(parts) >= 2:
         return f'{parts[0]}-{parts[1]}'

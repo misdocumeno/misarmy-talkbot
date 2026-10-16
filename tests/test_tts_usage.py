@@ -30,6 +30,11 @@ def test_estimate_usd_azure_free_tier() -> None:
     assert estimate_usd(provider='azure', chars=600_000) == pytest.approx(1.6)
     assert estimate_usd(provider='google', chars=1_000_000) == 0.0
     assert estimate_usd(provider='edge', chars=1_000_000) == 0.0
+    # Chirp: 1M free, then $30/M → 1.5M chars → $15
+    assert estimate_usd(provider='google_cloud', chars=500_000) == 0.0
+    assert estimate_usd(
+        provider='google_cloud', chars=1_500_000
+    ) == pytest.approx(15.0)
 
 
 @pytest.mark.asyncio
@@ -89,11 +94,15 @@ async def test_record_and_report(
         assert await store.azure_chars_this_utc_month() == 100
 
         report = await store.build_report(
-            days=30, guild_id=1, azure_month_cap=500_000
+            days=30,
+            guild_id=1,
+            azure_month_cap=500_000,
+            google_cloud_month_cap=1_000_000,
         )
         assert report.total_chars == 140
         assert report.total_requests == 2
         assert report.azure_month_chars == 100
+        assert report.google_cloud_month_cap == 1_000_000
         assert {item.provider for item in report.by_provider} == {
             'azure',
             'google',

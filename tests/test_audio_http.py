@@ -43,7 +43,9 @@ async def test_publish_complete_and_get(server: AudioHttpServer) -> None:
     async with ClientSession() as client:
         async with client.get(url) as response:
             assert response.status == 200
-            assert response.headers['Content-Type'] == 'audio/mpeg'
+            assert (
+                response.headers['Content-Type'] == 'application/octet-stream'
+            )
             body = await response.read()
     assert body == payload
 

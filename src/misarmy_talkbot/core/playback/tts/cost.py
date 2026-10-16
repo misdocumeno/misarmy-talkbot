@@ -24,8 +24,9 @@ DEFAULT_COST_MODELS: dict[str, ProviderCostModel] = {
     'google': ProviderCostModel(
         usd_per_million_chars=0.0, free_chars_per_month=0
     ),
+    # Chirp 3 HD list price after 1M free chars/month.
     'google_cloud': ProviderCostModel(
-        usd_per_million_chars=4.0, free_chars_per_month=0
+        usd_per_million_chars=30.0, free_chars_per_month=1_000_000
     ),
 }
 

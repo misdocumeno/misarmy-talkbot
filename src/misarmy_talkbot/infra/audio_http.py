@@ -25,6 +25,8 @@ class AudioStreamSession:
     """One TTS item exposed at ``/tts/{stream_id}``."""
 
     stream_id: str
+    # octet-stream: Lavalink probes magic bytes (MP3 from Azure/edge, OGG from Chirp).
+    content_type: str = 'application/octet-stream'
     queue: asyncio.Queue[bytes | object] = field(
         default_factory=lambda: asyncio.Queue(maxsize=64)
     )
@@ -155,7 +157,7 @@ class AudioHttpServer:
         response = web.StreamResponse(
             status=200,
             headers={
-                'Content-Type': 'audio/mpeg',
+                'Content-Type': session.content_type,
                 'Cache-Control': 'no-store',
                 'Connection': 'close',
             },

@@ -80,10 +80,13 @@ class TtsRegistry:
             providers['google'] = GoogleTtsRouter(
                 cloud=GoogleCloudTtsProvider(google_settings),
                 gtts=gtts_provider,
+                settings=google_settings,
+                usage_store=usage_store,
             )
             logger.info(
-                'tts_registry google_cloud_enabled tier=%s',
+                'tts_registry google_cloud_enabled tier=%s monthly_cap=%s',
                 google_settings.voice_tier,
+                google_settings.monthly_cap,
             )
         else:
             providers['google'] = gtts_provider

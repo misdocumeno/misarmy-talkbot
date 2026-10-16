@@ -36,12 +36,20 @@ class GoogleCloudTtsSettings(BaseModel):
 
     Use a GCP API key with Cloud Text-to-Speech enabled, or leave empty to keep
     the free gTTS scrape path only.
+
+    Default listing tier is Chirp3 (streaming + 1M free chars/month). Soft cap
+    matches that free allotment; over-cap falls back to gTTS.
     """
 
     api_key: str = ''
-    # Standard | WaveNet | Neural2 — filters list_voices; synthesis uses the
-    # voice name the user picked (e.g. es-US-Standard-A).
-    voice_tier: str = 'Standard'
+    # Chirp3 | Standard | WaveNet | Neural2 | all — filters list_voices only.
+    voice_tier: str = 'Chirp3'
+    monthly_cap: int = Field(
+        default=1_000_000,
+        ge=0,
+        description='UTC calendar-month char soft cap for google_cloud; 0 = unlimited',
+    )
+    warn_ratio: float = Field(default=0.8, gt=0.0, le=1.0)
 
     @field_validator('api_key', 'voice_tier', mode='before')
     @classmethod
@@ -71,7 +79,13 @@ def load_azure_speech_settings() -> AzureSpeechSettings:
 
 def load_google_cloud_tts_settings() -> GoogleCloudTtsSettings:
     """Read Google Cloud TTS settings (empty key → gTTS only)."""
+    raw_cap = os.getenv('GOOGLE_TTS_MONTHLY_CAP', '1000000')
+    try:
+        monthly_cap = int(raw_cap)
+    except ValueError:
+        monthly_cap = 1_000_000
     return GoogleCloudTtsSettings(
         api_key=os.getenv('GOOGLE_TTS_API_KEY', ''),
-        voice_tier=os.getenv('GOOGLE_TTS_VOICE_TIER', 'Standard'),
+        voice_tier=os.getenv('GOOGLE_TTS_VOICE_TIER', 'Chirp3'),
+        monthly_cap=max(0, monthly_cap),
     )

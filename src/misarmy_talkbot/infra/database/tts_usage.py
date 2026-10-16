@@ -69,6 +69,8 @@ class UsageReport(BaseModel):
     guild_top_users: list[tuple[int, int]]
     azure_month_chars: int
     azure_month_cap: int
+    google_cloud_month_chars: int
+    google_cloud_month_cap: int
 
 
 class TtsUsageStore:
@@ -112,12 +114,22 @@ class TtsUsageStore:
             ok_only=True,
         )
 
+    async def google_cloud_chars_this_utc_month(self) -> int:
+        now = datetime.now(UTC)
+        month_start = datetime(now.year, now.month, 1, tzinfo=UTC)
+        return await self._sum_chars(
+            provider='google_cloud',
+            since=month_start,
+            ok_only=True,
+        )
+
     async def build_report(
         self,
         *,
         days: int,
         guild_id: int | None,
         azure_month_cap: int,
+        google_cloud_month_cap: int = 0,
     ) -> UsageReport:
         since = datetime.now(UTC) - timedelta(days=days)
         since_iso = _to_iso(since)
@@ -230,6 +242,10 @@ class TtsUsageStore:
             guild_top_users=guild_top_rows,
             azure_month_chars=await self.azure_chars_this_utc_month(),
             azure_month_cap=azure_month_cap,
+            google_cloud_month_chars=(
+                await self.google_cloud_chars_this_utc_month()
+            ),
+            google_cloud_month_cap=google_cloud_month_cap,
         )
 
     async def _sum_chars(

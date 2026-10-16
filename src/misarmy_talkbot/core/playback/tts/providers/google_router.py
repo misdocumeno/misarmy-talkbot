@@ -9,6 +9,8 @@ from misarmy_talkbot.core.playback.tts.effects import apply_ffmpeg_prosody
 from misarmy_talkbot.observability.logger import logger
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from misarmy_talkbot.core.playback.tts.provider import ProsodyLimits
     from misarmy_talkbot.core.playback.tts.providers.google_backend import (
         GoogleTtsProvider,
@@ -16,24 +18,32 @@ if TYPE_CHECKING:
     from misarmy_talkbot.core.playback.tts.providers.google_cloud_backend import (
         GoogleCloudTtsProvider,
     )
+    from misarmy_talkbot.core.playback.tts.settings import (
+        GoogleCloudTtsSettings,
+    )
+    from misarmy_talkbot.infra.database.tts_usage import TtsUsageStore
 
 
 class GoogleTtsRouter:
-    """Prefer Google Cloud; fall back to gTTS on errors or legacy voice ids."""
+    """Prefer Google Cloud; fall back to gTTS on quota, errors, or legacy ids."""
 
     backend_name: str = 'google_cloud'
-    # Cloud applies prosody in-API; gTTS fallback applies ffmpeg inside router.
+    # Cloud applies prosody in-API (or ffmpeg for Chirp); gTTS uses ffmpeg here.
     supports_native_prosody: bool = True
-    supports_streaming: bool = False
+    supports_streaming: bool = True
 
     def __init__(
         self,
         *,
         cloud: GoogleCloudTtsProvider,
         gtts: GoogleTtsProvider,
+        settings: GoogleCloudTtsSettings,
+        usage_store: TtsUsageStore,
     ) -> None:
         self._cloud = cloud
         self._gtts = gtts
+        self._settings = settings
+        self._usage_store = usage_store
         self._last_backend: str = 'google_cloud'
 
     @property
@@ -56,6 +66,17 @@ class GoogleTtsRouter:
             return await self._synthesize_gtts(
                 text, voice_id=voice_id, pitch=pitch, speed=speed
             )
+        if await self._cloud_over_cap(len(text)):
+            logger.warning(
+                'google_cloud_soft_cap_reached chars=%s cap=%s; falling_back=gtts',
+                len(text),
+                self._settings.monthly_cap,
+            )
+            lang = _gtts_lang_from_cloud_voice(voice_id)
+            return await self._synthesize_gtts(
+                text, voice_id=lang, pitch=pitch, speed=speed
+            )
+        await self._maybe_warn_near_cap(len(text))
         try:
             audio = await self._cloud.synthesize(
                 text, voice_id=voice_id, pitch=pitch, speed=speed
@@ -73,6 +94,63 @@ class GoogleTtsRouter:
             return await self._synthesize_gtts(
                 text, voice_id=lang, pitch=pitch, speed=speed
             )
+
+    async def stream_synthesize(
+        self,
+        text: str,
+        *,
+        voice_id: str,
+        pitch: float,
+        speed: float,
+    ) -> AsyncIterator[bytes]:
+        """Stream Chirp when under soft cap; else gTTS / one-shot Cloud."""
+        if _looks_like_gtts_voice(voice_id):
+            audio = await self._synthesize_gtts(
+                text, voice_id=voice_id, pitch=pitch, speed=speed
+            )
+            if audio:
+                yield audio
+            return
+
+        if await self._cloud_over_cap(len(text)):
+            logger.warning(
+                'google_cloud_soft_cap_reached chars=%s cap=%s; falling_back=gtts',
+                len(text),
+                self._settings.monthly_cap,
+            )
+            lang = _gtts_lang_from_cloud_voice(voice_id)
+            audio = await self._synthesize_gtts(
+                text, voice_id=lang, pitch=pitch, speed=speed
+            )
+            if audio:
+                yield audio
+            return
+
+        await self._maybe_warn_near_cap(len(text))
+        produced = False
+        try:
+            self._last_backend = 'google_cloud'
+            self.backend_name = 'google_cloud'
+            async for chunk in self._cloud.stream_synthesize(
+                text, voice_id=voice_id, pitch=pitch, speed=speed
+            ):
+                produced = True
+                yield chunk
+            return
+        except Exception as exc:
+            if produced:
+                raise
+            logger.warning(
+                'google_cloud_failed_fallback_gtts error=%s voice=%s',
+                exc,
+                voice_id,
+            )
+            lang = _gtts_lang_from_cloud_voice(voice_id)
+            audio = await self._synthesize_gtts(
+                text, voice_id=lang, pitch=pitch, speed=speed
+            )
+            if audio:
+                yield audio
 
     async def list_voice_ids(self) -> list[str]:
         try:
@@ -101,9 +179,30 @@ class GoogleTtsRouter:
         self.backend_name = 'google'
         return audio
 
+    async def _cloud_over_cap(self, upcoming_chars: int) -> bool:
+        cap = self._settings.monthly_cap
+        if cap <= 0:
+            return False
+        used = await self._usage_store.google_cloud_chars_this_utc_month()
+        return used + upcoming_chars > cap
+
+    async def _maybe_warn_near_cap(self, upcoming_chars: int) -> None:
+        cap = self._settings.monthly_cap
+        if cap <= 0:
+            return
+        used = await self._usage_store.google_cloud_chars_this_utc_month()
+        threshold = int(cap * self._settings.warn_ratio)
+        if used < threshold <= used + upcoming_chars:
+            logger.warning(
+                'google_cloud_soft_cap_warn used=%s cap=%s ratio=%s',
+                used + upcoming_chars,
+                cap,
+                self._settings.warn_ratio,
+            )
+
 
 def _looks_like_gtts_voice(voice_id: str) -> bool:
-    """``es-Spanish`` (gTTS) vs ``es-US-Standard-A`` (Cloud)."""
+    """``es-Spanish`` (gTTS) vs ``es-US-Standard-A`` / Chirp (Cloud)."""
     parts = voice_id.split('-')
     if len(parts) < 2:
         return True
@@ -114,5 +213,5 @@ def _looks_like_gtts_voice(voice_id: str) -> bool:
 
 
 def _gtts_lang_from_cloud_voice(voice_id: str) -> str:
-    """Best-effort map ``es-US-Standard-A`` → ``es`` for gTTS fallback."""
+    """Best-effort map ``es-US-Chirp3-HD-Aoede`` → ``es`` for gTTS fallback."""
     return voice_id.split('-', 1)[0]

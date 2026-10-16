@@ -177,6 +177,9 @@ msgstr "Por proveedor"
 msgid "tts_usage_cmd_azure_month"
 msgstr "Chars de Azure este mes UTC"
 
+msgid "tts_usage_cmd_google_cloud_month"
+msgstr "Chars de Google Cloud este mes UTC"
+
 msgid "tts_usage_cmd_top_guilds"
 msgstr "Top guilds"
 
