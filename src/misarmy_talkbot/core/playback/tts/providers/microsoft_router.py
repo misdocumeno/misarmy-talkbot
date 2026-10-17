@@ -131,19 +131,17 @@ class MicrosoftTtsRouter:
                 yield chunk
 
     async def list_voice_ids(self) -> list[str]:
-        """Full selectable catalog: Azure neural + edge-tts short names."""
-        names: set[str] = set()
+        """One Microsoft catalog (Azure ≈ edge-tts); no duplicate listing.
+
+        Prefer Azure's official list; fall back to edge-tts if Azure is down.
+        Runtime still falls back to edge-tts on soft-cap/errors without
+        exposing a second set of the same ShortNames.
+        """
         try:
-            names.update(await self._azure.list_voice_ids())
+            return await self._azure.list_voice_ids()
         except Exception:
-            logger.exception('azure_list_voices_failed')
-        try:
-            names.update(await self._edge.list_voice_ids())
-        except Exception:
-            logger.exception('edge_list_voices_failed')
-        if not names:
-            raise RuntimeError('no edge/ voices available from azure or edge')
-        return sorted(names)
+            logger.exception('azure_list_voices_failed; using edge list')
+            return await self._edge.list_voice_ids()
 
     async def _stream_edge(
         self,

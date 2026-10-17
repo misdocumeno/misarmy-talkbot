@@ -12,7 +12,9 @@ from misarmy_talkbot.infra.locale import translate
 from misarmy_talkbot.observability.logger import logger
 from misarmy_talkbot.observability.metrics import MetricsRegistry
 
-Phase = Literal['tts', 'voice', 'ffmpeg', 'playback', 'permissions']
+Phase = Literal[
+    'tts', 'voice', 'ffmpeg', 'playback', 'permissions', 'tts_fallback'
+]
 
 
 class ErrorReplyAnnouncer:
@@ -65,6 +67,7 @@ class ErrorReplyAnnouncer:
             'ffmpeg': 'ops_announce_phase_ffmpeg',
             'playback': 'ops_announce_phase_playback',
             'permissions': 'ops_announce_phase_permissions',
+            'tts_fallback': 'ops_announce_phase_tts_fallback',
         }
         guild = message.guild
         phase_label = (
@@ -72,10 +75,20 @@ class ErrorReplyAnnouncer:
             if phase in phase_msgids
             else phase
         )
+        is_fallback = phase == 'tts_fallback'
         embed = discord.Embed(
-            title=translate('ops_announce_title', guild),
+            title=translate(
+                'ops_announce_title_fallback'
+                if is_fallback
+                else 'ops_announce_title',
+                guild,
+            ),
             description=f'{phase_label}\n{summary}',
-            color=discord.Colour.red(),
+            color=(
+                discord.Colour.orange()
+                if is_fallback
+                else discord.Colour.red()
+            ),
         )
         try:
             await message.reply(embed=embed, mention_author=False)

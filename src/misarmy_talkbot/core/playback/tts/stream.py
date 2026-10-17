@@ -20,7 +20,14 @@ if TYPE_CHECKING:
 class StreamPublishResult:
     """HTTP URL Lavalink can load, plus metering metadata."""
 
-    __slots__ = ('session', 'url', 'backend_name', 'latency_ms', 'chars')
+    __slots__ = (
+        'session',
+        'url',
+        'backend_name',
+        'latency_ms',
+        'chars',
+        'user_notice_msgid',
+    )
 
     def __init__(
         self,
@@ -30,12 +37,14 @@ class StreamPublishResult:
         backend_name: str,
         latency_ms: int,
         chars: int,
+        user_notice_msgid: str | None = None,
     ) -> None:
         self.session = session
         self.url = url
         self.backend_name = backend_name
         self.latency_ms = latency_ms
         self.chars = chars
+        self.user_notice_msgid = user_notice_msgid
 
 
 async def publish_tts_http(
@@ -80,6 +89,7 @@ async def publish_tts_http(
             backend_name=voice_registry.backend_name_for(prefix),
             latency_ms=latency_ms,
             chars=len(text),
+            user_notice_msgid=_take_user_notice(provider),
         )
 
     result = await synthesize_mp3(
@@ -98,7 +108,16 @@ async def publish_tts_http(
         backend_name=result.backend_name,
         latency_ms=latency_ms,
         chars=result.chars,
+        user_notice_msgid=_take_user_notice(provider),
     )
+
+
+def _take_user_notice(provider: object) -> str | None:
+    take = getattr(provider, 'take_user_notice_msgid', None)
+    if callable(take):
+        notice = take()
+        return notice if isinstance(notice, str) else None
+    return None
 
 
 async def _run_feeder(

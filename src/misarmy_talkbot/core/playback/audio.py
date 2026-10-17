@@ -63,6 +63,7 @@ class AudioMessage:
         self.content = apply_edits(message)
         self.track_url = None
         self.audio_bytes = 0
+        self.fallback_notice_msgid: str | None = None
         self._session: AudioStreamSession | None = None
         self._generation = 0
         self._http = http_server or AudioHttpServer.instance()
@@ -106,6 +107,7 @@ class AudioMessage:
             session = published.session
             track_url = published.url
             audio_bytes = session.bytes_pushed
+            self.fallback_notice_msgid = published.user_notice_msgid
         except asyncio.CancelledError:
             raise
         except NoTokensError:

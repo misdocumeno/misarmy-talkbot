@@ -1,4 +1,4 @@
-"""Azure Cognitive Services Speech (REST one-shot + SDK audio streaming)."""
+"""Azure Cognitive Services Speech (REST one-shot + SDK push-stream)."""
 
 from __future__ import annotations
 
@@ -30,7 +30,6 @@ if TYPE_CHECKING:
 _OUTPUT_FORMAT = 'audio-24khz-48kbitrate-mono-mp3'
 # Issued tokens are valid ~10 minutes; refresh a bit early.
 _TOKEN_TTL_SECONDS = 9 * 60
-_STREAM_CHUNK = 16_384
 _EOF = object()
 
 
@@ -104,11 +103,12 @@ class AzureTtsProvider:
         pitch: float,
         speed: float,
     ) -> AsyncIterator[bytes]:
-        """Yield MP3 chunks as the Speech SDK produces them (first-byte latency).
+        """Yield MP3 chunks as the Speech SDK pushes them (first-byte latency).
 
-        Uses ``start_speaking_ssml_async`` + ``AudioDataStream.read_data`` on a
-        worker thread so the asyncio loop stays free. Output format matches the
-        REST path (24 kHz / 48 kbps mono MP3).
+        Uses ``PushAudioOutputStream`` so each chunk is a real ``bytes`` copy from
+        the SDK ``write(memoryview)`` callback. Avoids ``AudioDataStream.read_data``,
+        which requires a ``bytes`` buffer that the C layer mutates (rejects
+        ``bytearray``, and is unsafe / empty with immutable ``bytes``).
         """
         ssml = _build_ssml(text, voice_id=voice_id, pitch=pitch, speed=speed)
         queue: asyncio.Queue[bytes | object] = asyncio.Queue(maxsize=64)
@@ -201,7 +201,7 @@ def _sdk_stream_to_queue(
     queue: asyncio.Queue[bytes | object],
     loop: asyncio.AbstractEventLoop,
 ) -> None:
-    """Blocking Speech SDK reader; pushes chunks onto ``queue`` (thread-safe)."""
+    """Blocking Speech SDK push-stream; copies chunks onto ``queue``."""
     try:
         import azure.cognitiveservices.speech as speechsdk
     except ImportError:
@@ -221,11 +221,35 @@ def _sdk_stream_to_queue(
         speech_config.set_speech_synthesis_output_format(
             speechsdk.SpeechSynthesisOutputFormat.Audio24Khz48KBitRateMonoMp3
         )
-        # audio_config=None → audio stays in the result stream (no speaker).
+
+        class _PushCallback(speechsdk.audio.PushAudioOutputStreamCallback):
+            def __init__(self) -> None:
+                super().__init__()
+                self.total = 0
+                self.first_at: float | None = None
+
+            def write(self, audio_buffer: memoryview) -> int:
+                data = bytes(audio_buffer)
+                n = audio_buffer.nbytes
+                if data:
+                    if self.first_at is None:
+                        self.first_at = time.perf_counter()
+                    self.total += len(data)
+                    _put_sync(queue, loop, data)
+                return n
+
+            def close(self) -> None:
+                return
+
+        started = time.perf_counter()
+        callback = _PushCallback()
+        push_stream = speechsdk.audio.PushAudioOutputStream(callback)
+        audio_config = speechsdk.audio.AudioOutputConfig(stream=push_stream)
+        # Keep synthesizer + stream alive for the full speak call.
         synthesizer = speechsdk.SpeechSynthesizer(
-            speech_config=speech_config, audio_config=None
+            speech_config=speech_config, audio_config=audio_config
         )
-        result = synthesizer.start_speaking_ssml_async(ssml).get()
+        result = synthesizer.speak_ssml_async(ssml).get()
         if result is None:
             raise AzureSynthesisError(
                 'Azure SDK returned empty synthesis result', status=0
@@ -239,7 +263,6 @@ def _sdk_stream_to_queue(
             logger.warning(
                 'azure_sdk_canceled code=%s detail=%s', code, detail
             )
-            # Auth / quota / throttle → fall back to edge via router.
             if code in (
                 speechsdk.CancellationErrorCode.AuthenticationFailure,
                 speechsdk.CancellationErrorCode.TooManyRequests,
@@ -250,14 +273,22 @@ def _sdk_stream_to_queue(
                 f'Azure SDK canceled: {detail}', status=0
             )
 
-        stream = speechsdk.AudioDataStream(result)
-        buf = bytearray(_STREAM_CHUNK)
-        while True:
-            # SDK stubs annotate audio_buffer as bytes; runtime accepts bytearray.
-            filled = stream.read_data(buf)  # type: ignore[arg-type]
-            if filled <= 0:
-                break
-            _put_sync(queue, loop, bytes(buf[:filled]))
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        first_ms = (
+            int((callback.first_at - started) * 1000)
+            if callback.first_at is not None
+            else None
+        )
+        logger.info(
+            'azure_sdk_push_done bytes=%s first_byte_ms=%s finish_ms=%s',
+            callback.total,
+            first_ms,
+            elapsed_ms,
+        )
+        if callback.total <= 0:
+            raise AzureSynthesisError(
+                'Azure SDK push stream produced no audio', status=0
+            )
         _put_sync(queue, loop, _EOF)
     except (AzureQuotaExceeded, AzureSynthesisError) as exc:
         _put_sync(queue, loop, exc)

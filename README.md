@@ -34,11 +34,12 @@ Tradeoffs we accepted:
 
 TTS generation remains in Python (Azure Speech SDK streaming and/or edge-tts for
 `edge/` voices; Google Cloud and/or gTTS for `google/`, with ffmpeg pitch/speed
-when the provider has no native prosody). Voice catalogs stay maximal: list every
-Cloud voice (Standard, WaveNet, Neural2, Chirp, …) and every Azure/edge voice.
-Chirp streams OGG Opus over the HTTP bridge; other Cloud tiers are one-shot MP3.
-Soft monthly char caps keep Azure (500k) and Google Cloud (1M) in free tiers, then
-fall back to edge-tts / gTTS. Only Discord playback moved out of process.
+when the provider has no native prosody). User-facing IDs are always
+`edge/<id>` or `google/<id>` — never a raw backend picker. Azure↔edge and
+Cloud↔gTTS are app-side fallbacks (quota/errors). Catalog: `edge/` = Microsoft
+neural ShortNames; `google/` = Standard/WaveNet/Neural2/Chirp3 (Studio/Gemini
+excluded). Soft caps: Azure 500k/month; Google per SKU (Standard+WaveNet 4M,
+Neural2 1M, Chirp3 1M). Chirp streams OGG Opus; other Cloud tiers are one-shot MP3.
 
 
 ## Run it (Docker)
@@ -190,8 +191,15 @@ fall back to the base locale.
 | `AZURE_SPEECH_REGION` | (empty) | Azure Speech region (e.g. `eastus`) |
 | `AZURE_SPEECH_MONTHLY_CAP` | `500000` | Soft char cap per UTC calendar month for Azure (`0` = unlimited); over cap falls back to edge-tts |
 | `GOOGLE_TTS_API_KEY` | (empty) | GCP API key with Cloud Text-to-Speech enabled; when set, `google/` uses Cloud first |
-| `GOOGLE_TTS_VOICE_TIER` | `all` | Filter for `/voices` listing (`all`, or `Chirp3` / `Standard` / `WaveNet` / `Neural2`) |
-| `GOOGLE_TTS_MONTHLY_CAP` | `1000000` | Soft char cap per UTC month for `google_cloud` (`0` = unlimited); over cap → gTTS |
+| `GOOGLE_TTS_VOICE_TIER` | `all` | Filter for `/voices` (`all`, or `Chirp3` / `Standard` / `WaveNet` / `Neural2`) |
+| `GOOGLE_TTS_CAP_STANDARD_WAVENET` | `4000000` | Soft cap for Standard+WaveNet shared SKU (`0` = unlimited) |
+| `GOOGLE_TTS_CAP_NEURAL2` | `1000000` | Soft cap for Neural2 (+ Polyglot) SKU |
+| `GOOGLE_TTS_CAP_CHIRP3` | `1000000` | Soft cap for Chirp 3 HD SKU |
+| `GOOGLE_TTS_ALLOW_STUDIO` | off | List Studio voices + honor `GOOGLE_TTS_CAP_STUDIO` (1M free then $160/1M) |
+| `GOOGLE_TTS_CAP_STUDIO` | `1000000` | Soft cap for Studio SKU (only if allow Studio) |
+| `GOOGLE_TTS_MONTHLY_CAP` | (legacy) | If set and `CAP_NEURAL2`/`CAP_CHIRP3` unset, seeds those two caps |
+| `TTS_USAGE_ALLOWED_USER_IDS` | (empty=deny) | Comma-separated Discord user IDs allowed to run `/tts-usage` |
+| `TTS_USAGE_ALLOWED_GUILD_IDS` | (empty=any*) | Comma-separated guild IDs; if set, command only works there |
 | `LOG_LEVEL` | `INFO` | stderr log level (bot) |
 | `LANG` | `en_US` (bundled) | Gettext locale for slash descriptions and presence (`es_AR`, custom codes under `config/locales/`, …) |
 | `GRACE_DROP_SECONDS` | `60` | Voice disconnect grace before auto-unfollow |

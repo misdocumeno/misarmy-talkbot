@@ -174,6 +174,21 @@ class PlaybackEngine:
                     'queue_depth', self.guild_id, float(len(self._queue))
                 )
         else:
+            notice_msgid = audio.fallback_notice_msgid
+            if notice_msgid:
+                try:
+                    from misarmy_talkbot.infra.locale import translate
+
+                    await self._announcer.announce(
+                        audio.original,
+                        'tts_fallback',
+                        translate(notice_msgid, audio.original.guild),
+                    )
+                except Exception:
+                    logger.exception(
+                        'tts_fallback_announce_failed guild_id=%s',
+                        self.guild_id,
+                    )
             await self._queue.notify_state_change()
 
     async def clear(self) -> None:

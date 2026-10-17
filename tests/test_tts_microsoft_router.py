@@ -122,6 +122,30 @@ async def test_stream_uses_azure_chunks() -> None:
 
 
 @pytest.mark.asyncio
+async def test_list_voice_ids_azure_only_no_union() -> None:
+    azure = AsyncMock()
+    azure.list_voice_ids = AsyncMock(
+        return_value=['es-AR-ElenaNeural', 'en-US-JennyNeural']
+    )
+    edge = AsyncMock()
+    edge.list_voice_ids = AsyncMock(
+        return_value=['es-AR-ElenaNeural', 'en-US-JennyNeural', 'xx-extra']
+    )
+    usage_store = AsyncMock()
+    router = MicrosoftTtsRouter(
+        azure=cast('AzureTtsProvider', azure),
+        edge=cast('EdgeTtsProvider', edge),
+        settings=AzureSpeechSettings(
+            key='fake', region='eastus', monthly_cap=500_000
+        ),
+        usage_store=usage_store,
+    )
+    voices = await router.list_voice_ids()
+    assert voices == ['es-AR-ElenaNeural', 'en-US-JennyNeural']
+    edge.list_voice_ids.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_stream_falls_back_to_edge_before_first_byte() -> None:
     async def boom(*_a: object, **_k: object) -> AsyncIterator[bytes]:
         raise AzureSynthesisError('fail', status=500)

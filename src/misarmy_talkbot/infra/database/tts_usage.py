@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 import aiofiles
 from pydantic import BaseModel, Field
-from sqlalchemy import Boolean, Integer, String, func, select
+from sqlalchemy import Boolean, Integer, String, func, or_, select
 from sqlalchemy.orm import Mapped, mapped_column  # noqa: TC002
 
 from misarmy_talkbot.infra.database.database import Base, async_session
@@ -18,7 +18,11 @@ from misarmy_talkbot.paths import CONFIG_DIR
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from sqlalchemy import Select
+    from sqlalchemy import ColumnElement, Select
+
+    from misarmy_talkbot.core.playback.tts.google_billing import (
+        GoogleBillingBucket,
+    )
 
 
 class TtsUsageEvent(Base):
@@ -58,6 +62,15 @@ class ProviderUsageSummary(BaseModel):
     est_usd: float
 
 
+class GoogleBucketUsage(BaseModel):
+    """UTC-month usage vs soft cap for one Google Cloud billing SKU."""
+
+    bucket: str
+    label: str
+    chars: int
+    cap: int
+
+
 class UsageReport(BaseModel):
     days: int
     since: datetime
@@ -71,6 +84,7 @@ class UsageReport(BaseModel):
     azure_month_cap: int
     google_cloud_month_chars: int
     google_cloud_month_cap: int
+    google_buckets: list[GoogleBucketUsage] = Field(default_factory=list)
 
 
 class TtsUsageStore:
@@ -114,13 +128,16 @@ class TtsUsageStore:
             ok_only=True,
         )
 
-    async def google_cloud_chars_this_utc_month(self) -> int:
+    async def google_cloud_chars_this_utc_month(
+        self, *, bucket: GoogleBillingBucket | None = None
+    ) -> int:
         now = datetime.now(UTC)
         month_start = datetime(now.year, now.month, 1, tzinfo=UTC)
         return await self._sum_chars(
             provider='google_cloud',
             since=month_start,
             ok_only=True,
+            voice_bucket=bucket,
         )
 
     async def build_report(
@@ -130,6 +147,7 @@ class TtsUsageStore:
         guild_id: int | None,
         azure_month_cap: int,
         google_cloud_month_cap: int = 0,
+        google_bucket_caps: dict[str, int] | None = None,
     ) -> UsageReport:
         since = datetime.now(UTC) - timedelta(days=days)
         since_iso = _to_iso(since)
@@ -231,6 +249,25 @@ class TtsUsageStore:
         ]
         by_provider.sort(key=lambda item: item.chars, reverse=True)
 
+        bucket_caps = google_bucket_caps or {}
+        google_buckets: list[GoogleBucketUsage] = []
+        bucket_rows: list[tuple[GoogleBillingBucket, str]] = [
+            ('standard_wavenet', 'Standard+WaveNet (shared SKU)'),
+            ('neural2', 'Neural2+Polyglot (shared SKU)'),
+            ('chirp3', 'Chirp 3 HD'),
+            ('studio', 'Studio'),
+        ]
+        for bucket, label in bucket_rows:
+            chars = await self.google_cloud_chars_this_utc_month(bucket=bucket)
+            google_buckets.append(
+                GoogleBucketUsage(
+                    bucket=bucket,
+                    label=label,
+                    chars=chars,
+                    cap=int(bucket_caps.get(bucket, 0)),
+                )
+            )
+
         return UsageReport(
             days=days,
             since=since,
@@ -246,10 +283,16 @@ class TtsUsageStore:
                 await self.google_cloud_chars_this_utc_month()
             ),
             google_cloud_month_cap=google_cloud_month_cap,
+            google_buckets=google_buckets,
         )
 
     async def _sum_chars(
-        self, *, provider: str, since: datetime, ok_only: bool
+        self,
+        *,
+        provider: str,
+        since: datetime,
+        ok_only: bool,
+        voice_bucket: GoogleBillingBucket | None = None,
     ) -> int:
         statement: Select[tuple[int]] = select(
             func.coalesce(func.sum(TtsUsageEvent.chars), 0)
@@ -259,6 +302,8 @@ class TtsUsageStore:
         )
         if ok_only:
             statement = statement.where(TtsUsageEvent.ok.is_(True))
+        if voice_bucket is not None:
+            statement = statement.where(_voice_bucket_predicate(voice_bucket))
         async with async_session() as session:
             result = await session.execute(statement)
             return int(result.scalar_one())
@@ -298,6 +343,35 @@ class TtsUsageStore:
         line = json.dumps(payload, ensure_ascii=False) + '\n'
         async with aiofiles.open(path, mode='a', encoding='utf-8') as handle:
             await handle.write(line)
+
+
+def _voice_bucket_predicate(
+    bucket: GoogleBillingBucket,
+) -> ColumnElement[bool]:
+    """Match usage ``voice`` column to a Google billing SKU bucket."""
+    voice = TtsUsageEvent.voice
+    if bucket == 'chirp3':
+        return or_(
+            voice.ilike('%Chirp3%'),
+            voice.ilike('%Chirp-HD%'),
+            voice.ilike('%-Chirp%'),
+        )
+    if bucket == 'neural2':
+        return or_(voice.ilike('%Neural2%'), voice.ilike('%Polyglot%'))
+    if bucket == 'standard_wavenet':
+        return or_(voice.ilike('%Standard%'), voice.ilike('%Wavenet%'))
+    if bucket == 'studio':
+        return voice.ilike('%Studio%')
+    return ~or_(
+        voice.ilike('%Chirp3%'),
+        voice.ilike('%Chirp-HD%'),
+        voice.ilike('%-Chirp%'),
+        voice.ilike('%Neural2%'),
+        voice.ilike('%Polyglot%'),
+        voice.ilike('%Standard%'),
+        voice.ilike('%Wavenet%'),
+        voice.ilike('%Studio%'),
+    )
 
 
 def _to_iso(value: datetime) -> str:

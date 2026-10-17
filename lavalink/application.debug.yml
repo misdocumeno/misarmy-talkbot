@@ -44,6 +44,10 @@ lavalink:
     youtubeSearchEnabled: false
     soundcloudSearchEnabled: false
     gc-warnings: true
+    timeouts:
+      connectTimeoutMs: 10000
+      connectionRequestTimeoutMs: 10000
+      socketTimeoutMs: 15000
 
 metrics:
   prometheus:

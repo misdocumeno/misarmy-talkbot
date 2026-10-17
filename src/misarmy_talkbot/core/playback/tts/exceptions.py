@@ -25,3 +25,7 @@ class AzureSynthesisError(TtsError):
 
 class ProsodyValidationError(ValueError):
     """Pitch/speed outside the provider's allowed range (config-time)."""
+
+
+class VoiceNotAllowedError(TtsError):
+    """Voice id is known but not enabled for this deployment (e.g. Studio)."""

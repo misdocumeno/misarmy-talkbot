@@ -10,6 +10,9 @@ from typing import TYPE_CHECKING
 import aiohttp
 
 from misarmy_talkbot.core.playback.tts.effects import apply_ffmpeg_prosody
+from misarmy_talkbot.core.playback.tts.google_billing import (
+    voice_allowed_in_catalog,
+)
 from misarmy_talkbot.core.playback.tts.provider import ProsodyLimits
 from misarmy_talkbot.observability.logger import logger
 
@@ -157,14 +160,18 @@ class GoogleCloudTtsProvider:
                     )
                 payload = await response.json(content_type=None)
         names: list[str] = []
-        tier = self._settings.voice_tier.lower()
         for entry in payload.get('voices', []):
             if not isinstance(entry, dict):
                 continue
             name = entry.get('name')
             if not isinstance(name, str) or not name:
                 continue
-            if tier and tier != 'all' and tier not in name.lower():
+            # Drop Studio / InstantCustom / Gemini even when tier=all.
+            if not voice_allowed_in_catalog(
+                name,
+                voice_tier=self._settings.voice_tier,
+                allow_studio=self._settings.allow_studio,
+            ):
                 continue
             names.append(name)
         self._voices_cache = sorted(set(names))

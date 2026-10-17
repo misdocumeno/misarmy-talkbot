@@ -1,9 +1,13 @@
 """In-memory MP3 HTTP server so Lavalink can pull TTS without disk I/O.
 
 Lavalink's ``http`` source fetches ``http://misarmy_talkbot:<port>/tts/<id>``.
-Producers push byte chunks into a session queue; the GET handler streams them
-with chunked transfer. Non-streaming providers push one complete buffer then
-close — still no filesystem writes.
+
+Important: lavaplayer opens the URL **twice** — once to probe the container
+during ``loadItem``, then again from byte 0 when the track plays
+(``HttpAudioTrack.process``). A consume-once queue breaks the second GET
+(empty body → socket timeout → 404). Sessions therefore keep an append-only
+chunk buffer and every GET replays from the start, live-tailing while the
+producer is still pushing.
 """
 
 from __future__ import annotations
@@ -17,8 +21,6 @@ from aiohttp import web
 
 from misarmy_talkbot.observability.logger import logger
 
-_EOF = object()
-
 
 @dataclass
 class AudioStreamSession:
@@ -27,9 +29,8 @@ class AudioStreamSession:
     stream_id: str
     # octet-stream: Lavalink probes magic bytes (MP3 from Azure/edge, OGG from Chirp).
     content_type: str = 'application/octet-stream'
-    queue: asyncio.Queue[bytes | object] = field(
-        default_factory=lambda: asyncio.Queue(maxsize=64)
-    )
+    chunks: list[bytes] = field(default_factory=list)
+    condition: asyncio.Condition = field(default_factory=asyncio.Condition)
     first_byte: asyncio.Event = field(default_factory=asyncio.Event)
     closed: asyncio.Event = field(default_factory=asyncio.Event)
     bytes_pushed: int = 0
@@ -90,8 +91,10 @@ class AudioHttpServer:
     async def push(self, session: AudioStreamSession, data: bytes) -> None:
         if not data:
             return
-        session.bytes_pushed += len(data)
-        await session.queue.put(data)
+        async with session.condition:
+            session.chunks.append(data)
+            session.bytes_pushed += len(data)
+            session.condition.notify_all()
         if not session.first_byte.is_set():
             session.first_byte.set()
 
@@ -100,8 +103,9 @@ class AudioHttpServer:
     ) -> None:
         if error:
             session.error = error
-        await session.queue.put(_EOF)
-        session.closed.set()
+        async with session.condition:
+            session.closed.set()
+            session.condition.notify_all()
         if not session.first_byte.is_set():
             # Empty/failed stream: unblock waiters so load can fail cleanly.
             session.first_byte.set()
@@ -154,22 +158,33 @@ class AudioHttpServer:
         if session.error and session.bytes_pushed == 0:
             raise web.HTTPBadGateway(text=session.error)
 
-        response = web.StreamResponse(
-            status=200,
-            headers={
-                'Content-Type': session.content_type,
-                'Cache-Control': 'no-store',
-                'Connection': 'close',
-            },
-        )
+        headers = {
+            'Content-Type': session.content_type,
+            'Cache-Control': 'no-store',
+            'Connection': 'close',
+        }
+        # When synthesis already finished, Content-Length lets lavaplayer skip
+        # chunked-edge cases on the playback GET.
+        if session.closed.is_set() and session.bytes_pushed > 0:
+            headers['Content-Length'] = str(session.bytes_pushed)
+
+        response = web.StreamResponse(status=200, headers=headers)
         await response.prepare(request)
 
+        index = 0
         while True:
-            item = await session.queue.get()
-            if item is _EOF:
-                break
-            assert isinstance(item, bytes)
-            await response.write(item)
+            async with session.condition:
+                while (
+                    index >= len(session.chunks)
+                    and not session.closed.is_set()
+                ):
+                    await session.condition.wait()
+                if index >= len(session.chunks):
+                    break
+                batch = session.chunks[index:]
+                index = len(session.chunks)
+            for piece in batch:
+                await response.write(piece)
 
         await response.write_eof()
         return response

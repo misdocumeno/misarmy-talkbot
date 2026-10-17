@@ -42,6 +42,13 @@ lavalink:
     youtubeSearchEnabled: false
     soundcloudSearchEnabled: false
     gc-warnings: true
+    # Live TTS over chunked HTTP can pause between SDK/network chunks; the
+    # lavaplayer default (3000ms) is too aggressive and surfaces as
+    # PersistentHttpStream "Read timed out" mid-MP3.
+    timeouts:
+      connectTimeoutMs: 10000
+      connectionRequestTimeoutMs: 10000
+      socketTimeoutMs: 15000
 
 metrics:
   prometheus:

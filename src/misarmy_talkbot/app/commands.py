@@ -12,6 +12,7 @@ from misarmy_talkbot.app.follow_ops import (
     ignore_toggle,
     unfollow_user,
 )
+from misarmy_talkbot.app.tts_usage_access import can_run_tts_usage
 from misarmy_talkbot.args import args
 from misarmy_talkbot.core.playback.tts.exceptions import ProsodyValidationError
 from misarmy_talkbot.core.playback.tts.settings import (
@@ -531,13 +532,21 @@ def register_commands(bot: commands.Bot) -> None:
     @app_commands.describe(
         days=translate('tts_usage_cmd_days_argument_description')
     )
-    @app_commands.default_permissions(mute_members=True)
+    @app_commands.default_permissions(administrator=True)
     @app_commands.guild_only()
     async def tts_usage_cmd(
         interaction: discord.Interaction, days: int = 30
     ) -> None:
         await interaction.response.defer(ephemeral=True)
         if interaction.guild is None:
+            return
+        if not can_run_tts_usage(
+            user_id=interaction.user.id, guild_id=interaction.guild.id
+        ):
+            await interaction.followup.send(
+                translate('tts_usage_cmd_denied', interaction.guild),
+                ephemeral=True,
+            )
             return
         clamped_days = max(1, min(days, 90))
         azure_settings = load_azure_speech_settings()
@@ -547,6 +556,16 @@ def register_commands(bot: commands.Bot) -> None:
             guild_id=interaction.guild.id,
             azure_month_cap=azure_settings.monthly_cap,
             google_cloud_month_cap=google_settings.monthly_cap,
+            google_bucket_caps={
+                'standard_wavenet': google_settings.cap_standard_wavenet,
+                'neural2': google_settings.cap_neural2,
+                'chirp3': google_settings.cap_chirp3,
+                'studio': (
+                    google_settings.cap_studio
+                    if google_settings.allow_studio
+                    else 0
+                ),
+            },
         )
         embed = discord.Embed(
             title=translate('tts_usage_cmd_title', interaction.guild).format(
@@ -556,13 +575,16 @@ def register_commands(bot: commands.Bot) -> None:
         )
         embed.add_field(
             name=translate('tts_usage_cmd_totals', interaction.guild),
-            value=(f'{report.total_chars} chars / {report.total_requests} ok'),
+            value=(
+                f'{report.total_chars:,} chars / {report.total_requests} ok '
+                f'(window since {report.since.date().isoformat()} UTC)'
+            ),
             inline=False,
         )
         if report.by_provider:
             provider_lines = '\n'.join(
                 (
-                    f'`{summary.provider}`: {summary.chars} chars, '
+                    f'`{summary.provider}`: {summary.chars:,} chars, '
                     f'{summary.requests} req, ~${summary.est_usd:.2f}'
                 )
                 for summary in report.by_provider
@@ -573,32 +595,65 @@ def register_commands(bot: commands.Bot) -> None:
                 inline=False,
             )
         azure_cap_label = (
-            str(report.azure_month_cap)
+            f'{report.azure_month_cap:,}'
             if report.azure_month_cap > 0
             else 'unlimited'
         )
+        azure_pct = (
+            f' ({100 * report.azure_month_chars / report.azure_month_cap:.0f}%)'
+            if report.azure_month_cap > 0
+            else ''
+        )
         embed.add_field(
             name=translate('tts_usage_cmd_azure_month', interaction.guild),
-            value=f'{report.azure_month_chars} / {azure_cap_label}',
+            value=(
+                f'{report.azure_month_chars:,} / {azure_cap_label}{azure_pct}\n'
+                f'_F0 also caps ~20 synth requests / 60s (rate, not chars)_'
+            ),
             inline=False,
         )
-        google_cap_label = (
-            str(report.google_cloud_month_cap)
-            if report.google_cloud_month_cap > 0
-            else 'unlimited'
-        )
+        if report.google_buckets:
+            bucket_lines: list[str] = []
+            for bucket in report.google_buckets:
+                if bucket.bucket == 'studio' and bucket.cap <= 0:
+                    bucket_lines.append(
+                        f'`{bucket.label}`: not listed '
+                        f'(local={bucket.chars:,})'
+                    )
+                    continue
+                cap_label = (
+                    f'{bucket.cap:,}' if bucket.cap > 0 else 'unlimited'
+                )
+                pct = (
+                    f' ({100 * bucket.chars / bucket.cap:.0f}%)'
+                    if bucket.cap > 0
+                    else ''
+                )
+                bucket_lines.append(
+                    f'`{bucket.label}`: {bucket.chars:,} / {cap_label}{pct}'
+                )
+            embed.add_field(
+                name=translate(
+                    'tts_usage_cmd_google_buckets', interaction.guild
+                ),
+                value='\n'.join(bucket_lines),
+                inline=False,
+            )
         embed.add_field(
             name=translate(
                 'tts_usage_cmd_google_cloud_month', interaction.guild
             ),
-            value=(f'{report.google_cloud_month_chars} / {google_cap_label}'),
+            value=(
+                f'All Cloud backends combined: '
+                f'{report.google_cloud_month_chars:,} chars (UTC month)'
+            ),
             inline=False,
         )
         if report.top_guilds:
             embed.add_field(
                 name=translate('tts_usage_cmd_top_guilds', interaction.guild),
                 value='\n'.join(
-                    f'`{guild_id}`: {chars}'
+                    f'`{guild_id}`: {chars:,}'
                     for guild_id, chars in report.top_guilds
                 ),
                 inline=False,
@@ -607,7 +662,7 @@ def register_commands(bot: commands.Bot) -> None:
             embed.add_field(
                 name=translate('tts_usage_cmd_top_users', interaction.guild),
                 value='\n'.join(
-                    f'<@{user_id}>: {chars}'
+                    f'<@{user_id}>: {chars:,}'
                     for user_id, chars in report.top_users
                 ),
                 inline=False,
@@ -618,7 +673,7 @@ def register_commands(bot: commands.Bot) -> None:
                     'tts_usage_cmd_guild_top_users', interaction.guild
                 ),
                 value='\n'.join(
-                    f'<@{user_id}>: {chars}'
+                    f'<@{user_id}>: {chars:,}'
                     for user_id, chars in report.guild_top_users
                 ),
                 inline=False,

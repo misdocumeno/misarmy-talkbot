@@ -160,7 +160,7 @@ msgstr "¡Preset guardado!"
 
 
 msgid "tts_usage_cmd_description"
-msgstr "Ver uso de TTS y costo estimado (admin)."
+msgstr "Ver uso de TTS, soft caps y costo estimado (ops)."
 
 msgid "tts_usage_cmd_days_argument_description"
 msgstr "Cuántos días atrás agregar (1–90, default 30)."
@@ -175,10 +175,13 @@ msgid "tts_usage_cmd_by_provider"
 msgstr "Por proveedor"
 
 msgid "tts_usage_cmd_azure_month"
-msgstr "Chars de Azure este mes UTC"
+msgstr "Azure (soft cap mes UTC)"
 
 msgid "tts_usage_cmd_google_cloud_month"
-msgstr "Chars de Google Cloud este mes UTC"
+msgstr "Google Cloud combinado (mes UTC)"
+
+msgid "tts_usage_cmd_google_buckets"
+msgstr "Google Cloud por SKU de billing (mes UTC)"
 
 msgid "tts_usage_cmd_top_guilds"
 msgstr "Top guilds"
@@ -188,6 +191,9 @@ msgstr "Top usuarios (todos los guilds)"
 
 msgid "tts_usage_cmd_guild_top_users"
 msgstr "Top usuarios (este guild)"
+
+msgid "tts_usage_cmd_denied"
+msgstr "No tienes permiso para usar este comando aquí."
 
 
 msgid "preset_cmd_deleted"
@@ -275,8 +281,14 @@ msgstr "/follow para hablar en voz"
 msgid "ops_announce_title"
 msgstr "Talkbot no pudo leer tu mensaje"
 
+msgid "ops_announce_title_fallback"
+msgstr "Cambio de voz"
+
 msgid "ops_announce_phase_tts"
 msgstr "Texto a voz"
+
+msgid "ops_announce_phase_tts_fallback"
+msgstr "Cambio de proveedor"
 
 msgid "ops_announce_phase_voice"
 msgstr "Conexión de voz"
@@ -289,3 +301,9 @@ msgstr "Reproducción"
 
 msgid "ops_announce_phase_permissions"
 msgstr "Permisos"
+
+msgid "tts_fallback_gtts_soft_cap"
+msgstr "Se alcanzó la cuota gratis mensual de Google Cloud, así que este mensaje usó la voz gratuita de gTTS (suena distinto; no es la voz Cloud que elegiste)."
+
+msgid "tts_fallback_gtts_error"
+msgstr "Falló Google Cloud TTS, así que este mensaje usó la voz gratuita de gTTS (suena distinto; no es la voz Cloud que elegiste)."

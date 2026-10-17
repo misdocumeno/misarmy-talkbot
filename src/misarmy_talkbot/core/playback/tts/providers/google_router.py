@@ -6,6 +6,10 @@ import io
 from typing import TYPE_CHECKING
 
 from misarmy_talkbot.core.playback.tts.effects import apply_ffmpeg_prosody
+from misarmy_talkbot.core.playback.tts.exceptions import VoiceNotAllowedError
+from misarmy_talkbot.core.playback.tts.google_billing import (
+    classify_google_voice,
+)
 from misarmy_talkbot.observability.logger import logger
 
 if TYPE_CHECKING:
@@ -25,7 +29,7 @@ if TYPE_CHECKING:
 
 
 class GoogleTtsRouter:
-    """Prefer Google Cloud; fall back to gTTS on quota, errors, or legacy ids."""
+    """Prefer Google Cloud; fall back to gTTS on quota/errors (not listed)."""
 
     backend_name: str = 'google_cloud'
     # Cloud applies prosody in-API (or ffmpeg for Chirp); gTTS uses ffmpeg here.
@@ -45,6 +49,7 @@ class GoogleTtsRouter:
         self._settings = settings
         self._usage_store = usage_store
         self._last_backend: str = 'google_cloud'
+        self._pending_user_notice_msgid: str | None = None
 
     @property
     def last_backend_name(self) -> str:
@@ -53,6 +58,12 @@ class GoogleTtsRouter:
     @property
     def prosody_limits(self) -> ProsodyLimits:
         return self._cloud.prosody_limits
+
+    def take_user_notice_msgid(self) -> str | None:
+        """Consume a one-shot gettext id for Discord fallback embeds."""
+        notice = self._pending_user_notice_msgid
+        self._pending_user_notice_msgid = None
+        return notice
 
     async def synthesize(
         self,
@@ -66,17 +77,24 @@ class GoogleTtsRouter:
             return await self._synthesize_gtts(
                 text, voice_id=voice_id, pitch=pitch, speed=speed
             )
-        if await self._cloud_over_cap(len(text)):
+        self._reject_disallowed_cloud_voice(voice_id)
+        if await self._cloud_over_cap(voice_id, len(text)):
+            bucket = classify_google_voice(voice_id)
             logger.warning(
-                'google_cloud_soft_cap_reached chars=%s cap=%s; falling_back=gtts',
+                'google_cloud_soft_cap_reached bucket=%s chars=%s cap=%s; '
+                'falling_back=gtts',
+                bucket,
                 len(text),
-                self._settings.monthly_cap,
+                self._settings.cap_for_bucket(bucket),
             )
-            lang = _gtts_lang_from_cloud_voice(voice_id)
-            return await self._synthesize_gtts(
-                text, voice_id=lang, pitch=pitch, speed=speed
+            return await self._fallback_gtts_from_cloud(
+                text,
+                voice_id=voice_id,
+                pitch=pitch,
+                speed=speed,
+                notice_msgid='tts_fallback_gtts_soft_cap',
             )
-        await self._maybe_warn_near_cap(len(text))
+        await self._maybe_warn_near_cap(voice_id, len(text))
         try:
             audio = await self._cloud.synthesize(
                 text, voice_id=voice_id, pitch=pitch, speed=speed
@@ -90,9 +108,12 @@ class GoogleTtsRouter:
                 exc,
                 voice_id,
             )
-            lang = _gtts_lang_from_cloud_voice(voice_id)
-            return await self._synthesize_gtts(
-                text, voice_id=lang, pitch=pitch, speed=speed
+            return await self._fallback_gtts_from_cloud(
+                text,
+                voice_id=voice_id,
+                pitch=pitch,
+                speed=speed,
+                notice_msgid='tts_fallback_gtts_error',
             )
 
     async def stream_synthesize(
@@ -112,21 +133,28 @@ class GoogleTtsRouter:
                 yield audio
             return
 
-        if await self._cloud_over_cap(len(text)):
+        self._reject_disallowed_cloud_voice(voice_id)
+        if await self._cloud_over_cap(voice_id, len(text)):
+            bucket = classify_google_voice(voice_id)
             logger.warning(
-                'google_cloud_soft_cap_reached chars=%s cap=%s; falling_back=gtts',
+                'google_cloud_soft_cap_reached bucket=%s chars=%s cap=%s; '
+                'falling_back=gtts',
+                bucket,
                 len(text),
-                self._settings.monthly_cap,
+                self._settings.cap_for_bucket(bucket),
             )
-            lang = _gtts_lang_from_cloud_voice(voice_id)
-            audio = await self._synthesize_gtts(
-                text, voice_id=lang, pitch=pitch, speed=speed
+            audio = await self._fallback_gtts_from_cloud(
+                text,
+                voice_id=voice_id,
+                pitch=pitch,
+                speed=speed,
+                notice_msgid='tts_fallback_gtts_soft_cap',
             )
             if audio:
                 yield audio
             return
 
-        await self._maybe_warn_near_cap(len(text))
+        await self._maybe_warn_near_cap(voice_id, len(text))
         produced = False
         try:
             self._last_backend = 'google_cloud'
@@ -145,27 +173,58 @@ class GoogleTtsRouter:
                 exc,
                 voice_id,
             )
-            lang = _gtts_lang_from_cloud_voice(voice_id)
-            audio = await self._synthesize_gtts(
-                text, voice_id=lang, pitch=pitch, speed=speed
+            audio = await self._fallback_gtts_from_cloud(
+                text,
+                voice_id=voice_id,
+                pitch=pitch,
+                speed=speed,
+                notice_msgid='tts_fallback_gtts_error',
             )
             if audio:
                 yield audio
 
+    def _reject_disallowed_cloud_voice(self, voice_id: str) -> None:
+        """Hard-deny Studio/Gemini/etc. unless explicitly enabled — every request.
+
+        Catalog filtering is not enough: a stale DB row must never hit a paid
+        SKU. Future premium tiers can flip ``allow_studio`` (or finer flags).
+        """
+        bucket = classify_google_voice(voice_id)
+        if bucket == 'studio' and not self._settings.allow_studio:
+            raise VoiceNotAllowedError(
+                f'Studio voice disabled: {voice_id!r} '
+                '(set GOOGLE_TTS_ALLOW_STUDIO=1 to enable)'
+            )
+        if bucket == 'unsupported':
+            raise VoiceNotAllowedError(
+                f'Google Cloud voice not supported here: {voice_id!r}'
+            )
+
     async def list_voice_ids(self) -> list[str]:
-        """Full selectable catalog: every Cloud voice + legacy gTTS ids."""
-        names: set[str] = set()
+        """Cloud catalog only (Standard/WaveNet/Neural2/Chirp3; no Studio).
+
+        gTTS is a runtime substitute only — never listed as a selectable set.
+        """
         try:
-            names.update(await self._cloud.list_voice_ids())
+            return await self._cloud.list_voice_ids()
         except Exception:
-            logger.exception('google_cloud_list_voices_failed')
-        try:
-            names.update(await self._gtts.list_voice_ids())
-        except Exception:
-            logger.exception('gtts_list_voices_failed')
-        if not names:
-            raise RuntimeError('no google voices available from cloud or gtts')
-        return sorted(names)
+            logger.exception('google_cloud_list_voices_failed; empty catalog')
+            return []
+
+    async def _fallback_gtts_from_cloud(
+        self,
+        text: str,
+        *,
+        voice_id: str,
+        pitch: float,
+        speed: float,
+        notice_msgid: str,
+    ) -> bytes:
+        self._pending_user_notice_msgid = notice_msgid
+        lang = _gtts_lang_from_cloud_voice(voice_id)
+        return await self._synthesize_gtts(
+            text, voice_id=lang, pitch=pitch, speed=speed
+        )
 
     async def _synthesize_gtts(
         self,
@@ -187,22 +246,34 @@ class GoogleTtsRouter:
         self.backend_name = 'google'
         return audio
 
-    async def _cloud_over_cap(self, upcoming_chars: int) -> bool:
-        cap = self._settings.monthly_cap
+    async def _cloud_over_cap(
+        self, voice_id: str, upcoming_chars: int
+    ) -> bool:
+        bucket = classify_google_voice(voice_id)
+        cap = self._settings.cap_for_bucket(bucket)
+        # Unsupported / Studio: never hit Cloud (cap 0 → over).
         if cap <= 0:
-            return False
-        used = await self._usage_store.google_cloud_chars_this_utc_month()
+            return True
+        used = await self._usage_store.google_cloud_chars_this_utc_month(
+            bucket=bucket
+        )
         return used + upcoming_chars > cap
 
-    async def _maybe_warn_near_cap(self, upcoming_chars: int) -> None:
-        cap = self._settings.monthly_cap
+    async def _maybe_warn_near_cap(
+        self, voice_id: str, upcoming_chars: int
+    ) -> None:
+        bucket = classify_google_voice(voice_id)
+        cap = self._settings.cap_for_bucket(bucket)
         if cap <= 0:
             return
-        used = await self._usage_store.google_cloud_chars_this_utc_month()
+        used = await self._usage_store.google_cloud_chars_this_utc_month(
+            bucket=bucket
+        )
         threshold = int(cap * self._settings.warn_ratio)
         if used < threshold <= used + upcoming_chars:
             logger.warning(
-                'google_cloud_soft_cap_warn used=%s cap=%s ratio=%s',
+                'google_cloud_soft_cap_warn bucket=%s used=%s cap=%s ratio=%s',
+                bucket,
                 used + upcoming_chars,
                 cap,
                 self._settings.warn_ratio,

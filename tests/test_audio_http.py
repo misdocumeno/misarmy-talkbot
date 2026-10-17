@@ -67,3 +67,42 @@ async def test_chunked_stream(server: AudioHttpServer) -> None:
             body = await response.read()
     await feeder
     assert body == b'aaabbb'
+
+
+@pytest.mark.asyncio
+async def test_replay_for_lavalink_dual_get(server: AudioHttpServer) -> None:
+    """lavaplayer probes with one GET, then plays with a second GET from byte 0."""
+    payload = b'\xff\xfb' + b'\x00' * 64
+    session = await server.publish_complete(payload)
+    url = server.url_for(session.stream_id)
+    async with ClientSession() as client:
+        async with client.get(url) as probe:
+            assert probe.status == 200
+            assert await probe.read() == payload
+        async with client.get(url) as play:
+            assert play.status == 200
+            assert play.headers.get('Content-Length') == str(len(payload))
+            assert await play.read() == payload
+
+
+@pytest.mark.asyncio
+async def test_replay_while_still_streaming(server: AudioHttpServer) -> None:
+    session = server.create_session()
+    url = server.url_for(session.stream_id)
+
+    async def feed() -> None:
+        await server.push(session, b'head')
+        await asyncio.sleep(0.05)
+        await server.push(session, b'tail')
+        await server.close_session(session)
+
+    feeder = asyncio.create_task(feed())
+    async with ClientSession() as client:
+        async with client.get(url) as probe:
+            # Probe may finish before tail arrives; wait briefly then read all.
+            body1 = await probe.read()
+        async with client.get(url) as play:
+            body2 = await play.read()
+    await feeder
+    assert body1 in (b'head', b'headtail')
+    assert body2 == b'headtail'
