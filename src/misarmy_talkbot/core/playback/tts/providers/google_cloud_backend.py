@@ -17,7 +17,7 @@ from misarmy_talkbot.core.playback.tts.provider import ProsodyLimits
 from misarmy_talkbot.observability.logger import logger
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Iterator
 
     from misarmy_talkbot.core.playback.tts.settings import (
         GoogleCloudTtsSettings,
@@ -218,7 +218,9 @@ def _chirp_stream_to_queue(
             ),
         )
 
-        def request_generator() -> object:
+        def request_generator() -> Iterator[
+            texttospeech.StreamingSynthesizeRequest
+        ]:
             yield texttospeech.StreamingSynthesizeRequest(
                 streaming_config=streaming_config
             )
