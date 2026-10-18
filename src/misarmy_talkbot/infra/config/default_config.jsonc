@@ -2,7 +2,7 @@
   // a supported locale, like "en_US". "guild_preferred" to use the guild's preferred locale.
   // use /locales to see all supported locales.
   "locale": "guild_preferred",
-  "defaultVoice": "edge/en-US-BrianMultilingualNeural",
+  "defaultVoice": "azure/en-US-BrianMultilingualNeural",
   "replacements": {
     // replace some pattern with something else
     "regex": {
@@ -27,8 +27,8 @@
   },
   // presets accessible to all members
   "voicePresets": {
-    "reaper": {"voice": "edge/en-US-AndrewMultilingualNeural", "pitch": 0.4, "speed": 0.9},
-    "chipmunk": {"voice": "edge/en-US-EmmaMultilingualNeural", "pitch": 1.6, "speed": 1.3}
+    "reaper": {"voice": "azure/en-US-AndrewMultilingualNeural", "pitch": 0.4, "speed": 0.9},
+    "chipmunk": {"voice": "azure/en-US-EmmaMultilingualNeural", "pitch": 1.6, "speed": 1.3}
   },
   // replace the bot messages with custom ones
   // see README.md#configuration (localeOverrides)

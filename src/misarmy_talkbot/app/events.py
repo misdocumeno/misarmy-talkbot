@@ -30,6 +30,9 @@ from misarmy_talkbot.infra.config.config import (
 )
 from misarmy_talkbot.infra.config.presence import apply_global_presence
 from misarmy_talkbot.infra.database.database import create_tables
+from misarmy_talkbot.infra.database.migrate_edge_prefix import (
+    migrate_edge_prefix_to_azure,
+)
 from misarmy_talkbot.infra.database.tts_usage import TtsUsageStore
 from misarmy_talkbot.observability.debugpy_boot import start_debugpy_if_enabled
 from misarmy_talkbot.observability.logger import logger
@@ -68,6 +71,7 @@ async def _first_boot(bot: commands.Bot) -> None:
     logger.info('first_boot ENTER guild_count=%s', len(bot.guilds))
     try:
         await create_tables()
+        await migrate_edge_prefix_to_azure()
         TtsRegistry.build_default(TtsUsageStore.instance())
         await AudioHttpServer.instance().start()
         # Warm voice catalogs so /voice autocomplete is instant.

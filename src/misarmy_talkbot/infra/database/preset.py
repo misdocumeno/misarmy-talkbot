@@ -71,6 +71,10 @@ async def save_preset(
     if await get_preset(member, name) is not None:
         return False
 
+    from misarmy_talkbot.core.playback.tts.registry import TtsRegistry
+
+    voice = TtsRegistry.instance().canonicalize_voice(voice)
+
     async with async_session() as session:
         result = await session.execute(
             insert(VoicePreset)

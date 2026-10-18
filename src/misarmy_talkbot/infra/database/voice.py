@@ -85,7 +85,9 @@ async def update_voice(
         pitch = pitch if pitch is not None else 1.0
         speed = speed if speed is not None else 1.0
 
+    registry = TtsRegistry.instance()
     new_voice = voice if voice is not None else current.voice
+    new_voice = registry.canonicalize_voice(new_voice)
     new_pitch = pitch if pitch is not None else current.pitch
     new_speed = speed if speed is not None else current.speed
 
@@ -96,9 +98,7 @@ async def update_voice(
     ):
         return False
 
-    TtsRegistry.instance().validate_prosody(
-        new_voice, pitch=new_pitch, speed=new_speed
-    )
+    registry.validate_prosody(new_voice, pitch=new_pitch, speed=new_speed)
 
     async with async_session() as session:
         updated = await session.execute(

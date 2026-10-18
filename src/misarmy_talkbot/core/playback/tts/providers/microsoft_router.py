@@ -1,4 +1,4 @@
-"""``edge/`` namespace: Azure when configured, with edge-tts fallback on quota."""
+"""``azure/`` namespace: Azure when configured, with edge-tts fallback on quota."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 
 class MicrosoftTtsRouter:
-    """User-facing ``edge/`` backend: prefer Azure, fall back to edge-tts."""
+    """User-facing ``azure/`` backend: prefer Azure, fall back to edge-tts."""
 
     # Metering uses the leaf backend that actually produced audio.
     backend_name: str = 'azure'

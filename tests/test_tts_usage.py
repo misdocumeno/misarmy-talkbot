@@ -69,7 +69,7 @@ async def test_record_and_report(
                 guild_id=1,
                 user_id=10,
                 provider='azure',
-                voice='edge/es-AR-ElenaNeural',
+                voice='azure/es-AR-ElenaNeural',
                 chars=100,
                 ok=True,
                 latency_ms=50,

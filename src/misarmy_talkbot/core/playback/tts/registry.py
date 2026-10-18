@@ -1,4 +1,4 @@
-"""Maps user-facing voice prefixes (``edge``, ``google``) to TTS backends."""
+"""Maps user-facing voice prefixes (``azure``, ``google``) to TTS backends."""
 
 from __future__ import annotations
 
@@ -22,6 +22,9 @@ if TYPE_CHECKING:
         TtsProvider,
     )
     from misarmy_talkbot.infra.database.tts_usage import TtsUsageStore
+
+# Legacy user-facing prefix ``edge/`` → canonical ``azure/``.
+_PREFIX_ALIASES: dict[str, str] = {'edge': 'azure'}
 
 
 class TtsRegistry:
@@ -103,7 +106,7 @@ class TtsRegistry:
             )
 
             azure_provider = AzureTtsProvider(azure_settings)
-            providers['edge'] = MicrosoftTtsRouter(
+            providers['azure'] = MicrosoftTtsRouter(
                 azure=azure_provider,
                 edge=edge_provider,
                 settings=azure_settings,
@@ -115,31 +118,46 @@ class TtsRegistry:
                 azure_settings.monthly_cap,
             )
         else:
-            providers['edge'] = edge_provider
+            providers['azure'] = edge_provider
             logger.info('tts_registry azure_disabled using_edge_tts')
 
         registry = cls(providers)
         cls._instance = registry
         return registry
 
+    @staticmethod
+    def resolve_prefix(prefix: str) -> str:
+        """Map legacy ``edge`` to canonical ``azure``."""
+        return _PREFIX_ALIASES.get(prefix, prefix)
+
     def get(self, prefix: str) -> TtsProvider:
+        key = self.resolve_prefix(prefix)
         try:
-            return self._providers[prefix]
+            return self._providers[key]
         except KeyError as exc:
             raise ValueError(f'unsupported TTS provider: {prefix!r}') from exc
 
     def has(self, prefix: str) -> bool:
-        return prefix in self._providers
+        return self.resolve_prefix(prefix) in self._providers
 
     def prefixes(self) -> list[str]:
+        """Canonical prefixes for autocomplete (no legacy aliases)."""
         return sorted(self._providers)
 
     def parse_voice(self, voice: str) -> tuple[str, str]:
-        """Split ``edge/es-AR-ElenaNeural`` into ``(edge, es-AR-ElenaNeural)``."""
+        """Split ``azure/es-AR-ElenaNeural`` into ``(azure, es-AR-ElenaNeural)``.
+
+        Legacy ``edge/...`` is normalized to ``azure/...``.
+        """
         prefix, separator, voice_id = voice.partition('/')
         if not separator or not prefix or not voice_id:
             raise ValueError(f'invalid voice id: {voice!r}')
-        return prefix, voice_id
+        return self.resolve_prefix(prefix), voice_id
+
+    def canonicalize_voice(self, voice: str) -> str:
+        """Rewrite legacy ``edge/...`` to ``azure/...``; otherwise unchanged."""
+        prefix, voice_id = self.parse_voice(voice)
+        return f'{prefix}/{voice_id}'
 
     def prosody_limits_for_voice(self, voice: str) -> ProsodyLimits:
         prefix, _voice_id = self.parse_voice(voice)
