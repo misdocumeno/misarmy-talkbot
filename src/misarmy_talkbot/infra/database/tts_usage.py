@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import Boolean, Integer, String, func, or_, select
 from sqlalchemy.orm import Mapped, mapped_column  # noqa: TC002
 
+from misarmy_talkbot.core.playback.tts.quota_period import quota_period_start
 from misarmy_talkbot.infra.database.database import Base, async_session
 from misarmy_talkbot.observability.logger import logger
 from misarmy_talkbot.paths import CONFIG_DIR
@@ -119,9 +120,13 @@ class TtsUsageStore:
         except Exception:
             logger.exception('tts_usage_jsonl_failed')
 
-    async def azure_chars_this_utc_month(self) -> int:
-        now = datetime.now(UTC)
-        month_start = datetime(now.year, now.month, 1, tzinfo=UTC)
+    async def azure_chars_this_utc_month(
+        self,
+        *,
+        month_day: int = 1,
+        tz_name: str = 'UTC',
+    ) -> int:
+        month_start = quota_period_start(month_day=month_day, tz_name=tz_name)
         return await self._sum_chars(
             provider='azure',
             since=month_start,
@@ -129,10 +134,13 @@ class TtsUsageStore:
         )
 
     async def google_cloud_chars_this_utc_month(
-        self, *, bucket: GoogleBillingBucket | None = None
+        self,
+        *,
+        bucket: GoogleBillingBucket | None = None,
+        month_day: int = 1,
+        tz_name: str = 'UTC',
     ) -> int:
-        now = datetime.now(UTC)
-        month_start = datetime(now.year, now.month, 1, tzinfo=UTC)
+        month_start = quota_period_start(month_day=month_day, tz_name=tz_name)
         return await self._sum_chars(
             provider='google_cloud',
             since=month_start,
@@ -148,6 +156,10 @@ class TtsUsageStore:
         azure_month_cap: int,
         google_cloud_month_cap: int = 0,
         google_bucket_caps: dict[str, int] | None = None,
+        azure_quota_month_day: int = 1,
+        azure_quota_tz: str = 'UTC',
+        google_quota_month_day: int = 1,
+        google_quota_tz: str = 'UTC',
     ) -> UsageReport:
         since = datetime.now(UTC) - timedelta(days=days)
         since_iso = _to_iso(since)
@@ -258,7 +270,11 @@ class TtsUsageStore:
             ('studio', 'Studio'),
         ]
         for bucket, label in bucket_rows:
-            chars = await self.google_cloud_chars_this_utc_month(bucket=bucket)
+            chars = await self.google_cloud_chars_this_utc_month(
+                bucket=bucket,
+                month_day=google_quota_month_day,
+                tz_name=google_quota_tz,
+            )
             google_buckets.append(
                 GoogleBucketUsage(
                     bucket=bucket,
@@ -277,10 +293,16 @@ class TtsUsageStore:
             top_guilds=[(int(row[0]), int(row[1])) for row in top_guilds],
             top_users=[(int(row[0]), int(row[1])) for row in top_users],
             guild_top_users=guild_top_rows,
-            azure_month_chars=await self.azure_chars_this_utc_month(),
+            azure_month_chars=await self.azure_chars_this_utc_month(
+                month_day=azure_quota_month_day,
+                tz_name=azure_quota_tz,
+            ),
             azure_month_cap=azure_month_cap,
             google_cloud_month_chars=(
-                await self.google_cloud_chars_this_utc_month()
+                await self.google_cloud_chars_this_utc_month(
+                    month_day=google_quota_month_day,
+                    tz_name=google_quota_tz,
+                )
             ),
             google_cloud_month_cap=google_cloud_month_cap,
             google_buckets=google_buckets,

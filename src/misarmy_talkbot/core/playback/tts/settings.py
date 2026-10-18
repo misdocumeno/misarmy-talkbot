@@ -25,11 +25,14 @@ class AzureSpeechSettings(BaseModel):
     monthly_cap: int = Field(
         default=500_000,
         ge=0,
-        description='UTC calendar-month char soft cap; 0 = unlimited',
+        description='Quota-period char soft cap; 0 = unlimited',
     )
+    # Soft-cap window: day-of-month + IANA tz (match Speech → Pricing tier).
+    quota_month_day: int = Field(default=1, ge=1, le=28)
+    quota_tz: str = 'UTC'
     warn_ratio: float = Field(default=0.8, gt=0.0, le=1.0)
 
-    @field_validator('key', 'region', mode='before')
+    @field_validator('key', 'region', 'quota_tz', mode='before')
     @classmethod
     def _strip_str(cls, value: object) -> object:
         if isinstance(value, str):
@@ -54,14 +57,17 @@ class GoogleCloudTtsSettings(BaseModel):
     voice_tier: str = 'all'
     # Opt-in: list Studio voices (1M free then $160/1M). Off by default.
     allow_studio: bool = False
-    # Per-bucket UTC-month soft caps (0 = unlimited for that bucket).
+    # Per-bucket soft caps (0 = unlimited for that bucket).
     cap_standard_wavenet: int = Field(default=4_000_000, ge=0)
     cap_neural2: int = Field(default=1_000_000, ge=0)
     cap_chirp3: int = Field(default=1_000_000, ge=0)
     cap_studio: int = Field(default=1_000_000, ge=0)
+    # Google free tier is calendar-month; keep configurable anyway.
+    quota_month_day: int = Field(default=1, ge=1, le=28)
+    quota_tz: str = 'UTC'
     warn_ratio: float = Field(default=0.8, gt=0.0, le=1.0)
 
-    @field_validator('api_key', 'voice_tier', mode='before')
+    @field_validator('api_key', 'voice_tier', 'quota_tz', mode='before')
     @classmethod
     def _strip_str(cls, value: object) -> object:
         if isinstance(value, str):
@@ -109,12 +115,19 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_quota_month_day(name: str, default: int = 1) -> int:
+    """Day-of-month for quota reset (1..28)."""
+    return min(28, max(1, _env_int(name, default) or default))
+
+
 def load_azure_speech_settings() -> AzureSpeechSettings:
     """Read Azure Speech settings from process env (empty key → disabled)."""
     return AzureSpeechSettings(
         key=os.getenv('AZURE_SPEECH_KEY', ''),
         region=os.getenv('AZURE_SPEECH_REGION', ''),
         monthly_cap=_env_int('AZURE_SPEECH_MONTHLY_CAP', 500_000),
+        quota_month_day=_env_quota_month_day('AZURE_SPEECH_QUOTA_MONTH_DAY'),
+        quota_tz=os.getenv('AZURE_SPEECH_QUOTA_TZ', 'UTC') or 'UTC',
     )
 
 
@@ -161,4 +174,6 @@ def load_google_cloud_tts_settings() -> GoogleCloudTtsSettings:
         cap_studio=_env_int(
             'GOOGLE_TTS_CAP_STUDIO', default_cap_for_bucket('studio')
         ),
+        quota_month_day=_env_quota_month_day('GOOGLE_TTS_QUOTA_MONTH_DAY'),
+        quota_tz=os.getenv('GOOGLE_TTS_QUOTA_TZ', 'UTC') or 'UTC',
     )

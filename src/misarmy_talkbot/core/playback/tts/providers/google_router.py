@@ -255,7 +255,9 @@ class GoogleTtsRouter:
         if cap <= 0:
             return True
         used = await self._usage_store.google_cloud_chars_this_utc_month(
-            bucket=bucket
+            bucket=bucket,
+            month_day=self._settings.quota_month_day,
+            tz_name=self._settings.quota_tz,
         )
         return used + upcoming_chars > cap
 
@@ -267,7 +269,9 @@ class GoogleTtsRouter:
         if cap <= 0:
             return
         used = await self._usage_store.google_cloud_chars_this_utc_month(
-            bucket=bucket
+            bucket=bucket,
+            month_day=self._settings.quota_month_day,
+            tz_name=self._settings.quota_tz,
         )
         threshold = int(cap * self._settings.warn_ratio)
         if used < threshold <= used + upcoming_chars:

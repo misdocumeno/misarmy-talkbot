@@ -566,6 +566,10 @@ def register_commands(bot: commands.Bot) -> None:
                     else 0
                 ),
             },
+            azure_quota_month_day=azure_settings.quota_month_day,
+            azure_quota_tz=azure_settings.quota_tz,
+            google_quota_month_day=google_settings.quota_month_day,
+            google_quota_tz=google_settings.quota_tz,
         )
         embed = discord.Embed(
             title=translate('tts_usage_cmd_title', interaction.guild).format(

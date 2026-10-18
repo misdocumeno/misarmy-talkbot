@@ -177,14 +177,20 @@ class MicrosoftTtsRouter:
         cap = self._settings.monthly_cap
         if cap <= 0:
             return False
-        used = await self._usage_store.azure_chars_this_utc_month()
+        used = await self._usage_store.azure_chars_this_utc_month(
+            month_day=self._settings.quota_month_day,
+            tz_name=self._settings.quota_tz,
+        )
         return used + upcoming_chars > cap
 
     async def _maybe_warn_near_cap(self, upcoming_chars: int) -> None:
         cap = self._settings.monthly_cap
         if cap <= 0:
             return
-        used = await self._usage_store.azure_chars_this_utc_month()
+        used = await self._usage_store.azure_chars_this_utc_month(
+            month_day=self._settings.quota_month_day,
+            tz_name=self._settings.quota_tz,
+        )
         threshold = int(cap * self._settings.warn_ratio)
         if used < threshold <= used + upcoming_chars:
             logger.warning(
