@@ -96,8 +96,8 @@ GOOGLE_PROSODY = GoogleProsodyLimits(
 class TtsProvider(Protocol):
     """Structural interface for one TTS backend (duck typing + type checkers).
 
-    User-facing voice prefixes (``azure/``, ``google/``) may map to a different
-    ``backend_name`` used for metering (e.g. ``azure/`` → ``azure`` or ``edge``).
+    User-facing voice prefixes (``ms/``, ``google/``) may map to a different
+    ``backend_name`` used for metering (e.g. ``ms/`` → ``azure`` or ``edge``).
     """
 
     @property

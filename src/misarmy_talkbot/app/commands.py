@@ -15,7 +15,6 @@ from misarmy_talkbot.app.follow_ops import (
 from misarmy_talkbot.app.tts_usage_access import can_run_tts_usage
 from misarmy_talkbot.args import args
 from misarmy_talkbot.core.playback.tts.exceptions import ProsodyValidationError
-from misarmy_talkbot.core.playback.tts.registry import TtsRegistry
 from misarmy_talkbot.core.playback.tts.settings import (
     load_azure_speech_settings,
     load_google_cloud_tts_settings,
@@ -197,36 +196,27 @@ def register_commands(bot: commands.Bot) -> None:
                 'voice_cmd_current_voice',
                 voice=voice.voice,
             )
+        elif new_voice not in await voices_list():
+            await reply_interaction(
+                interaction,
+                discord.Colour.red(),
+                'voice_cmd_invalid_voice',
+                voice=new_voice,
+            )
+        elif await update_voice(member, voice=new_voice):
+            await reply_interaction(
+                interaction,
+                color,
+                'voice_cmd_new_voice',
+                (
+                    'voice_cmd_new_voice_footer'
+                    if voice.speed != 1.0 or voice.pitch != 1.0
+                    else ''
+                ),
+                voice=new_voice,
+            )
         else:
-            try:
-                new_voice = TtsRegistry.instance().canonicalize_voice(
-                    new_voice
-                )
-            except ValueError:
-                pass
-            if new_voice not in await voices_list():
-                await reply_interaction(
-                    interaction,
-                    discord.Colour.red(),
-                    'voice_cmd_invalid_voice',
-                    voice=new_voice,
-                )
-            elif await update_voice(member, voice=new_voice):
-                await reply_interaction(
-                    interaction,
-                    color,
-                    'voice_cmd_new_voice',
-                    (
-                        'voice_cmd_new_voice_footer'
-                        if voice.speed != 1.0 or voice.pitch != 1.0
-                        else ''
-                    ),
-                    voice=new_voice,
-                )
-            else:
-                await reply_interaction(
-                    interaction, color, 'voice_cmd_same_voice'
-                )
+            await reply_interaction(interaction, color, 'voice_cmd_same_voice')
 
     voice_cmd.autocomplete('new_voice')(voice_autocomplete)
 

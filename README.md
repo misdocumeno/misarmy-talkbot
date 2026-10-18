@@ -33,10 +33,10 @@ Tradeoffs we accepted:
   are Lavalink/wavelink concerns.
 
 TTS generation remains in Python (Azure Speech SDK streaming and/or edge-tts for
-`azure/` voices; Google Cloud and/or gTTS for `google/`, with ffmpeg pitch/speed
+`ms/` voices; Google Cloud and/or gTTS for `google/`, with ffmpeg pitch/speed
 when the provider has no native prosody). User-facing IDs are always
-`azure/<id>` or `google/<id>` — never a raw backend picker. Azure↔edge and
-Cloud↔gTTS are app-side fallbacks (quota/errors). Catalog: `azure/` = Microsoft
+`ms/<id>` or `google/<id>` — never a raw backend picker. Azure↔edge and
+Cloud↔gTTS are app-side fallbacks (quota/errors). Catalog: `ms/` = Microsoft
 neural ShortNames; `google/` = Standard/WaveNet/Neural2/Chirp3 (Studio/Gemini
 excluded). Soft caps: Azure 500k/month; Google per SKU (Standard+WaveNet 4M,
 Neural2 1M, Chirp3 1M). Chirp streams OGG Opus; other Cloud tiers are one-shot MP3.
@@ -187,7 +187,7 @@ fall back to the base locale.
 | `TTS_MAX_CONCURRENT` | `2` | Per-guild bound on concurrent TTS generation tasks (Edge rate-limits bursts) |
 | `EDGE_TTS_MAX_ATTEMPTS` | `4` | Retries for Edge TTS `429` responses |
 | `EDGE_TTS_RETRY_BACKOFF_SECONDS` | `1.5` | Base backoff (seconds) between Edge TTS `429` retries |
-| `AZURE_SPEECH_KEY` | (empty) | Azure Speech subscription key; when set with region, `azure/` uses Azure first |
+| `AZURE_SPEECH_KEY` | (empty) | Azure Speech subscription key; when set with region, `ms/` uses Azure first |
 | `AZURE_SPEECH_REGION` | (empty) | Azure Speech region (e.g. `eastus`) |
 | `AZURE_SPEECH_MONTHLY_CAP` | `500000` | Soft char cap per UTC calendar month for Azure (`0` = unlimited); over cap falls back to edge-tts |
 | `GOOGLE_TTS_API_KEY` | (empty) | GCP API key with Cloud Text-to-Speech enabled; when set, `google/` uses Cloud first |

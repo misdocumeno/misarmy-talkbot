@@ -41,13 +41,13 @@ def test_build_default_without_azure(
     store = TtsUsageStore(jsonl_dir=tmp_path / 'tts-usage')
     TtsUsageStore.set_instance(store)
     registry = TtsRegistry.build_default(store)
-    assert registry.has('azure')
-    assert registry.has('edge')  # legacy alias
+    assert registry.has('ms')
+    assert not registry.has('edge')
+    assert not registry.has('azure')
     assert registry.has('google')
-    assert isinstance(registry.get('azure'), EdgeTtsProvider)
-    assert registry.get('edge') is registry.get('azure')
+    assert isinstance(registry.get('ms'), EdgeTtsProvider)
     assert isinstance(registry.get('google'), GoogleTtsProvider)
-    assert registry.prefixes() == ['azure', 'google']
+    assert registry.prefixes() == ['google', 'ms']
 
 
 def test_build_default_with_google_cloud(
@@ -68,29 +68,17 @@ def test_build_default_with_google_cloud(
 
 def test_parse_and_validate_prosody() -> None:
     registry = TtsRegistry({
-        'azure': cast('TtsProvider', EdgeTtsProvider()),
+        'ms': cast('TtsProvider', EdgeTtsProvider()),
         'google': cast('TtsProvider', GoogleTtsProvider()),
     })
     TtsRegistry.set_instance(registry)
-    assert registry.parse_voice('azure/es-AR-ElenaNeural') == (
-        'azure',
+    assert registry.parse_voice('ms/es-AR-ElenaNeural') == (
+        'ms',
         'es-AR-ElenaNeural',
     )
-    assert registry.parse_voice('edge/es-AR-ElenaNeural') == (
-        'azure',
-        'es-AR-ElenaNeural',
-    )
-    assert (
-        registry.canonicalize_voice('edge/es-AR-ElenaNeural')
-        == 'azure/es-AR-ElenaNeural'
-    )
-    registry.validate_prosody('azure/es-AR-ElenaNeural', pitch=1.0, speed=1.0)
-    # Azure SSML window: pitch outside 0.5–1.5 is rejected for azure/.
+    registry.validate_prosody('ms/es-AR-ElenaNeural', pitch=1.0, speed=1.0)
     with pytest.raises(ProsodyValidationError):
-        registry.validate_prosody(
-            'azure/es-AR-ElenaNeural', pitch=0.1, speed=1.0
-        )
-    # gTTS+ffmpeg: outside Azure window is still OK if positive.
+        registry.validate_prosody('ms/es-AR-ElenaNeural', pitch=0.1, speed=1.0)
     registry.validate_prosody('google/es-Spanish', pitch=2.0, speed=0.5)
     with pytest.raises(ProsodyValidationError):
         registry.validate_prosody('google/es-Spanish', pitch=0.0, speed=1.0)
@@ -101,4 +89,4 @@ def test_unknown_prefix() -> None:
         'google': cast('TtsProvider', GoogleTtsProvider())
     })
     with pytest.raises(ValueError, match='unsupported'):
-        registry.get('azure')
+        registry.get('ms')

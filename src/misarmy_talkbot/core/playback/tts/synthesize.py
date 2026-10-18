@@ -40,7 +40,7 @@ async def synthesize_mp3(
     speed: float,
     registry: TtsRegistry | None = None,
 ) -> SynthesisResult:
-    """Synthesize ``text`` for a full voice id (``azure/...`` / ``google/...``)."""
+    """Synthesize ``text`` for a full voice id (``ms/...`` / ``google/...``)."""
     voice_registry = registry or TtsRegistry.instance()
     prefix, voice_id = voice_registry.parse_voice(voice)
     provider = voice_registry.get(prefix)
