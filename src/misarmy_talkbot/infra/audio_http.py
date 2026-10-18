@@ -18,6 +18,7 @@ import uuid
 from dataclasses import dataclass, field
 
 from aiohttp import web
+from aiohttp.client_exceptions import ClientConnectionResetError
 
 from misarmy_talkbot.observability.logger import logger
 
@@ -172,19 +173,41 @@ class AudioHttpServer:
         await response.prepare(request)
 
         index = 0
-        while True:
-            async with session.condition:
-                while (
-                    index >= len(session.chunks)
-                    and not session.closed.is_set()
-                ):
-                    await session.condition.wait()
-                if index >= len(session.chunks):
-                    break
-                batch = session.chunks[index:]
-                index = len(session.chunks)
-            for piece in batch:
-                await response.write(piece)
+        try:
+            while True:
+                async with session.condition:
+                    while (
+                        index >= len(session.chunks)
+                        and not session.closed.is_set()
+                    ):
+                        await session.condition.wait()
+                    if index >= len(session.chunks):
+                        break
+                    batch = session.chunks[index:]
+                    index = len(session.chunks)
+                for piece in batch:
+                    await response.write(piece)
 
-        await response.write_eof()
+            await response.write_eof()
+        except (
+            ClientConnectionResetError,
+            ConnectionResetError,
+            BrokenPipeError,
+            ConnectionError,
+        ) as exc:
+            # lavaplayer probe GET often hangs up after magic bytes.
+            logger.debug(
+                'audio_http_client_gone stream=%s err=%s',
+                stream_id,
+                exc,
+            )
+        except RuntimeError as exc:
+            # asyncio: "Cannot write to closing transport"
+            if 'closing transport' not in str(exc).lower():
+                raise
+            logger.debug(
+                'audio_http_client_gone stream=%s err=%s',
+                stream_id,
+                exc,
+            )
         return response

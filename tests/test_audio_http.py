@@ -86,6 +86,29 @@ async def test_replay_for_lavalink_dual_get(server: AudioHttpServer) -> None:
 
 
 @pytest.mark.asyncio
+async def test_client_disconnect_during_stream_is_quiet(
+    server: AudioHttpServer,
+) -> None:
+    """lavaplayer probe often closes early; must not raise on write."""
+    session = server.create_session()
+    url = server.url_for(session.stream_id)
+
+    async def feed() -> None:
+        for i in range(20):
+            await server.push(session, f'chunk{i:02d}'.encode())
+            await asyncio.sleep(0.01)
+        await server.close_session(session)
+
+    feeder = asyncio.create_task(feed())
+    async with ClientSession() as client:
+        async with client.get(url) as response:
+            assert response.status == 200
+            # Read a little then drop — mimics probe hang-up.
+            await response.content.read(8)
+    await feeder
+
+
+@pytest.mark.asyncio
 async def test_replay_while_still_streaming(server: AudioHttpServer) -> None:
     session = server.create_session()
     url = server.url_for(session.stream_id)

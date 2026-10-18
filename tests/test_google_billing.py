@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from misarmy_talkbot.core.playback.tts.google_billing import (
     classify_google_voice,
+    google_voice_sort_key,
     voice_allowed_in_catalog,
 )
 
@@ -35,3 +36,18 @@ def test_catalog_excludes_studio() -> None:
     assert not voice_allowed_in_catalog(
         'es-US-Standard-A', voice_tier='Chirp3'
     )
+
+
+def test_google_voice_sort_cheap_first() -> None:
+    voices = [
+        'es-US-Chirp3-HD-Aoede',
+        'es-US-Neural2-A',
+        'es-US-Standard-A',
+        'es-US-Wavenet-B',
+    ]
+    assert sorted(voices, key=google_voice_sort_key) == [
+        'es-US-Standard-A',
+        'es-US-Wavenet-B',
+        'es-US-Neural2-A',
+        'es-US-Chirp3-HD-Aoede',
+    ]

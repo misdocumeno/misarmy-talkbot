@@ -34,7 +34,7 @@ from misarmy_talkbot.infra.database.tts_usage import TtsUsageStore
 from misarmy_talkbot.observability.debugpy_boot import start_debugpy_if_enabled
 from misarmy_talkbot.observability.logger import logger
 from misarmy_talkbot.observability.metrics import MetricsRegistry
-from misarmy_talkbot.utils import is_deafened
+from misarmy_talkbot.utils import is_deafened, voices_list
 
 if TYPE_CHECKING:
     import wavelink
@@ -70,6 +70,12 @@ async def _first_boot(bot: commands.Bot) -> None:
         await create_tables()
         TtsRegistry.build_default(TtsUsageStore.instance())
         await AudioHttpServer.instance().start()
+        # Warm voice catalogs so /voice autocomplete is instant.
+        try:
+            warmed = await voices_list()
+            logger.info('voices_catalog_warmed count=%s', len(warmed))
+        except Exception:
+            logger.exception('voices_catalog_warm_failed')
         await _load_guild_config(None)
 
         await apply_global_presence(bot)

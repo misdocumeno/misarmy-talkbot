@@ -11,6 +11,7 @@ import aiohttp
 
 from misarmy_talkbot.core.playback.tts.effects import apply_ffmpeg_prosody
 from misarmy_talkbot.core.playback.tts.google_billing import (
+    google_voice_sort_key,
     voice_allowed_in_catalog,
 )
 from misarmy_talkbot.core.playback.tts.provider import ProsodyLimits
@@ -174,7 +175,7 @@ class GoogleCloudTtsProvider:
             ):
                 continue
             names.append(name)
-        self._voices_cache = sorted(set(names))
+        self._voices_cache = sorted(set(names), key=google_voice_sort_key)
         logger.info(
             'google_cloud_voices_cached count=%s tier=%s',
             len(self._voices_cache),

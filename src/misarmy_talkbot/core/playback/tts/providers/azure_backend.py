@@ -33,6 +33,18 @@ _TOKEN_TTL_SECONDS = 9 * 60
 _EOF = object()
 
 
+def azure_voice_sort_key(voice_id: str) -> tuple[int, str]:
+    """Sort key: standard Neural first, HD / DragonHD last (same F0 char bucket)."""
+    lower = voice_id.lower()
+    if 'dragonhd' in lower or 'neuralhd' in lower or '-hd-' in lower:
+        rank = 2
+    elif 'multilingual' in lower:
+        rank = 1
+    else:
+        rank = 0
+    return (rank, voice_id)
+
+
 class AzureTtsProvider:
     backend_name: str = 'azure'
     supports_native_prosody: bool = True
@@ -163,7 +175,7 @@ class AzureTtsProvider:
                 short_name = entry.get('ShortName')
                 if isinstance(short_name, str) and short_name:
                     names.append(short_name)
-        self._voices_cache = sorted(set(names))
+        self._voices_cache = sorted(set(names), key=azure_voice_sort_key)
         return list(self._voices_cache)
 
     async def _ensure_token(self) -> str:

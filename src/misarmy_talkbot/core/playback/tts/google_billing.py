@@ -52,6 +52,22 @@ def classify_google_voice(voice_id: str) -> GoogleBillingBucket:
     return 'unsupported'
 
 
+# Cheapest / largest free allotment first (autocomplete ordering).
+_CATALOG_SORT_RANK: dict[GoogleBillingBucket, int] = {
+    'standard_wavenet': 0,
+    'neural2': 1,
+    'chirp3': 2,
+    'studio': 3,
+    'unsupported': 4,
+}
+
+
+def google_voice_sort_key(voice_id: str) -> tuple[int, str]:
+    """Sort key: billing bucket (cheap→expensive), then name."""
+    bucket = classify_google_voice(voice_id)
+    return (_CATALOG_SORT_RANK.get(bucket, 99), voice_id)
+
+
 def voice_allowed_in_catalog(
     voice_id: str,
     *,

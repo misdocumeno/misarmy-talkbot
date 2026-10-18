@@ -11,6 +11,9 @@ from misarmy_talkbot.core.playback.tts.prosody import (
     microsoft_rate_string,
 )
 from misarmy_talkbot.core.playback.tts.provider import MICROSOFT_PROSODY
+from misarmy_talkbot.core.playback.tts.providers.azure_backend import (
+    azure_voice_sort_key,
+)
 from misarmy_talkbot.core.playback.tts.voices.edge import (
     generate_edge_tts,
     stream_edge_tts,
@@ -27,6 +30,9 @@ class EdgeTtsProvider:
     supports_native_prosody: bool = True
     supports_streaming: bool = True
     prosody_limits: ProsodyLimits = MICROSOFT_PROSODY
+
+    def __init__(self) -> None:
+        self._voices_cache: list[str] | None = None
 
     async def synthesize(
         self,
@@ -61,8 +67,11 @@ class EdgeTtsProvider:
             yield chunk
 
     async def list_voice_ids(self) -> list[str]:
+        if self._voices_cache is not None:
+            return list(self._voices_cache)
         voices = await edge_tts.list_voices()
         names = [
             voice['ShortName'] for voice in voices if voice.get('ShortName')
         ]
-        return sorted(set(names))
+        self._voices_cache = sorted(set(names), key=azure_voice_sort_key)
+        return list(self._voices_cache)
