@@ -89,6 +89,34 @@ msgid "voice_cmd_new_voice_footer"
 msgstr "Tu tono de voz y velocidad se han restaurado a 1.0"
 
 
+msgid "set_voice_cmd_description"
+msgstr "Admin: establecer voz, tono y/o velocidad de otro miembro."
+
+msgid "set_voice_cmd_member_argument_description"
+msgstr "El miembro a actualizar."
+
+msgid "set_voice_cmd_voice_argument_description"
+msgstr "Id de voz (ms/... o google/...). Vacío para no cambiar."
+
+msgid "set_voice_cmd_pitch_argument_description"
+msgstr "Multiplicador de tono. Vacío para no cambiar (o 1.0 si cambias la voz)."
+
+msgid "set_voice_cmd_speed_argument_description"
+msgstr "Multiplicador de velocidad. Vacío para no cambiar (o 1.0 si cambias la voz)."
+
+msgid "set_voice_cmd_current"
+msgstr "{user}: voz={voice}, tono={pitch}, velocidad={speed}"
+
+msgid "set_voice_cmd_updated"
+msgstr "Actualizado {user}: voz={voice}, tono={pitch}, velocidad={speed}"
+
+msgid "set_voice_cmd_unchanged"
+msgstr "No hubo cambios para ese miembro."
+
+msgid "set_voice_cmd_invalid_prosody"
+msgstr "Tono/velocidad inválidos: {detail}"
+
+
 msgid "pitch_cmd_description"
 msgstr "Cambiar tu tono de voz actual."
 

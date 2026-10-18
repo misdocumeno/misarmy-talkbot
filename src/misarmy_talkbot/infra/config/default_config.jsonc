@@ -1,8 +1,8 @@
 {
-  // a supported locale, like "en_US". "guild_preferred" to use the guild's preferred locale.
-  // use /locales to see all supported locales.
+  // a supported locale, like "en_US". "guild_preferred" to use the guild's preferred locale
+  // (falls back within the same language, e.g. es_419 → es_ES). use /locales for catalogs.
+  // New users get an auto-assigned cheap voice for this language (no defaultVoice).
   "locale": "guild_preferred",
-  "defaultVoice": "ms/en-US-BrianMultilingualNeural",
   "replacements": {
     // replace some pattern with something else
     "regex": {

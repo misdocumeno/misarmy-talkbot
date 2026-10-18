@@ -1,6 +1,10 @@
 from typing import TYPE_CHECKING
 
 from misarmy_talkbot.infra.locale.context import LocaleContext
+from misarmy_talkbot.infra.locale.resolve import (
+    language_code,
+    resolve_supported_locale,
+)
 from misarmy_talkbot.infra.locale.translations import (
     UnsupportedLocaleError,
     global_locale,
@@ -19,6 +23,8 @@ __all__ = [
     'UnsupportedLocaleError',
     'global_locale',
     'is_supported_locale',
+    'language_code',
+    'resolve_supported_locale',
     'supported_locales',
     'translate',
     'validate_locale',

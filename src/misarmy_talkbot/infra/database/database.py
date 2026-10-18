@@ -26,7 +26,7 @@ async_session = async_sessionmaker(
 
 async def create_tables() -> None:
     # Side-effect imports register ORM models on Base.metadata.
-    for module_name in ('preset', 'tts_usage', 'voice'):
+    for module_name in ('preset', 'tts_usage', 'voice', 'voice_rotation'):
         importlib.import_module(
             f'misarmy_talkbot.infra.database.{module_name}'
         )

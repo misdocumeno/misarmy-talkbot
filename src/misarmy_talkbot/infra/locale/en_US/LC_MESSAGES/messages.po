@@ -89,6 +89,34 @@ msgid "voice_cmd_new_voice_footer"
 msgstr "Your pitch and speed have been restored to 1.0"
 
 
+msgid "set_voice_cmd_description"
+msgstr "Admin: set another member's voice, pitch, and/or speed."
+
+msgid "set_voice_cmd_member_argument_description"
+msgstr "The member to update."
+
+msgid "set_voice_cmd_voice_argument_description"
+msgstr "Voice id (ms/... or google/...). Leave empty to keep current."
+
+msgid "set_voice_cmd_pitch_argument_description"
+msgstr "Pitch multiplier. Leave empty to keep current (or 1.0 if changing voice)."
+
+msgid "set_voice_cmd_speed_argument_description"
+msgstr "Speed multiplier. Leave empty to keep current (or 1.0 if changing voice)."
+
+msgid "set_voice_cmd_current"
+msgstr "{user}: voice={voice}, pitch={pitch}, speed={speed}"
+
+msgid "set_voice_cmd_updated"
+msgstr "Updated {user}: voice={voice}, pitch={pitch}, speed={speed}"
+
+msgid "set_voice_cmd_unchanged"
+msgstr "Nothing changed for that member."
+
+msgid "set_voice_cmd_invalid_prosody"
+msgstr "Invalid pitch/speed: {detail}"
+
+
 msgid "pitch_cmd_description"
 msgstr "Change your current voice pitch."
 

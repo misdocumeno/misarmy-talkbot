@@ -6,6 +6,11 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import Mapped, mapped_column
 
 from misarmy_talkbot.core.playback.tts.registry import TtsRegistry
+from misarmy_talkbot.core.playback.tts.voice_pool import (
+    guild_language_for_pool,
+    next_auto_voice_for_guild,
+    random_auto_pitch,
+)
 from misarmy_talkbot.infra.config.config import config
 
 from .database import Base, async_session
@@ -39,7 +44,6 @@ async def get_voice(member: discord.Member) -> UserVoice:
     if member.guild in _user_voices and member in _user_voices[member.guild]:
         return _user_voices[member.guild][member]
 
-    # get the setting from the database
     async with async_session() as session:
         result = await session.execute(
             select(UserVoice).filter_by(
@@ -48,14 +52,19 @@ async def get_voice(member: discord.Member) -> UserVoice:
         )
         voice = result.scalar_one_or_none()
 
-        # nothing in the db, create a new entry
-        if voice is None:
+    if voice is None:
+        language = guild_language_for_pool(config[member.guild].locale)
+        assigned = await next_auto_voice_for_guild(member.guild.id, language)
+        pitch = random_auto_pitch()
+        async with async_session() as session:
             result = await session.execute(
                 insert(UserVoice)
                 .values(
                     guild_id=member.guild.id,
                     user_id=member.id,
-                    voice=config[member.guild].default_voice,
+                    voice=assigned,
+                    pitch=pitch,
+                    speed=1.0,
                 )
                 .returning(UserVoice)
             )

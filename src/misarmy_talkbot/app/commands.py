@@ -221,6 +221,80 @@ def register_commands(bot: commands.Bot) -> None:
     voice_cmd.autocomplete('new_voice')(voice_autocomplete)
 
     @bot.tree.command(
+        name='set-voice',
+        description=translate('set_voice_cmd_description'),
+    )
+    @app_commands.describe(
+        member=translate('set_voice_cmd_member_argument_description'),
+        new_voice=translate('set_voice_cmd_voice_argument_description'),
+        new_pitch=translate('set_voice_cmd_pitch_argument_description'),
+        new_speed=translate('set_voice_cmd_speed_argument_description'),
+    )
+    @app_commands.guild_only()
+    @app_commands.default_permissions(manage_guild=True)
+    async def set_voice_cmd(
+        interaction: discord.Interaction,
+        member: discord.Member,
+        new_voice: str | None = None,
+        new_pitch: float | None = None,
+        new_speed: float | None = None,
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+        color = discord.Colour.dark_purple()
+        if new_voice is None and new_pitch is None and new_speed is None:
+            current = await get_voice(member)
+            await reply_interaction(
+                interaction,
+                color,
+                'set_voice_cmd_current',
+                user=member.mention,
+                voice=current.voice,
+                pitch=current.pitch,
+                speed=current.speed,
+            )
+            return
+        if new_voice is not None and new_voice not in await voices_list():
+            await reply_interaction(
+                interaction,
+                discord.Colour.red(),
+                'voice_cmd_invalid_voice',
+                voice=new_voice,
+            )
+            return
+        try:
+            changed = await update_voice(
+                member,
+                voice=new_voice,
+                pitch=new_pitch,
+                speed=new_speed,
+            )
+        except ProsodyValidationError as exc:
+            await reply_interaction(
+                interaction,
+                discord.Colour.red(),
+                'set_voice_cmd_invalid_prosody',
+                detail=str(exc),
+            )
+            return
+        if changed:
+            current = await get_voice(member)
+            await reply_interaction(
+                interaction,
+                color,
+                'set_voice_cmd_updated',
+                user=member.mention,
+                voice=current.voice,
+                pitch=current.pitch,
+                speed=current.speed,
+            )
+        else:
+            await reply_interaction(
+                interaction, color, 'set_voice_cmd_unchanged'
+            )
+
+    set_voice_cmd.autocomplete('new_voice')(voice_autocomplete)
+
+    @bot.tree.command(
         name='pitch', description=translate('pitch_cmd_description')
     )
     @app_commands.describe(

@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from misarmy_talkbot.infra.locale import translations
 from misarmy_talkbot.infra.locale.context import LocaleContext
+from misarmy_talkbot.infra.locale.resolve import resolve_supported_locale
 from misarmy_talkbot.observability.logger import logger
 from misarmy_talkbot.paths import CONFIG_DIR
 
@@ -31,7 +32,6 @@ class VoicePreset(BaseModel):
 
 class GuildConfig(BaseModel):
     locale: str
-    default_voice: str = Field(..., alias='defaultVoice')
     replacements: ReplacementsSection
     voice_presets: dict[str, VoicePreset] = Field(..., alias='voicePresets')
     locale_overrides: dict[str, str] = Field(..., alias='localeOverrides')
@@ -66,15 +66,22 @@ def validate_config(
     config: str, guild: discord.Guild | None = None
 ) -> GuildConfig:
     validated = GuildConfig.model_validate(json5.loads(config))
-    # use preferred locale, if supported
+    # Prefer Discord's guild locale when configured; map to a shipped catalog.
     if guild is not None and validated.locale == 'guild_preferred':
-        locale = guild.preferred_locale.value.replace('-', '_')
-        if not translations.is_supported_locale(locale):
-            logger.warning(
-                f"{guild}'s preferred locale {locale!r} is not supported. Using global locale."
+        requested = guild.preferred_locale.value.replace('-', '_')
+        resolved = resolve_supported_locale(requested)
+        if resolved != requested:
+            logger.info(
+                'guild_locale_resolved guild=%s requested=%r resolved=%r',
+                guild,
+                requested,
+                resolved,
             )
-            locale = translations.global_locale
-        validated.locale = locale
+        validated.locale = resolved
+    elif guild is not None and not translations.is_supported_locale(
+        validated.locale
+    ):
+        validated.locale = resolve_supported_locale(validated.locale)
     return validated
 
 
