@@ -23,3 +23,6 @@ __pycache__/
 *$py.class
 *.so
 .Python
+# Local agent handoffs (fleet docs; never commit)
+AGENTS.md
+
