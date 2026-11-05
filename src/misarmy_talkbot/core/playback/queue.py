@@ -8,9 +8,11 @@ play call needs a retry, and removed by message identity for ``on_message_delete
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import TYPE_CHECKING
 
 from misarmy_talkbot.core.playback.audio import AudioMessage
+from misarmy_talkbot.observability.logger import logger
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -49,11 +51,44 @@ class MessageQueue:
         self.__items.clear()
         await self._notify()
 
-    async def wait_until_head(self, state: AudioState) -> AudioMessage:
-        """Block until ``__items[0]`` is in ``state`` (does not remove it)."""
+    async def wait_until_head(
+        self,
+        state: AudioState,
+        *,
+        stuck_log_every_sec: float = 30.0,
+    ) -> AudioMessage:
+        """Block until ``__items[0]`` is in ``state`` (does not remove it).
+
+        Wakes periodically to log a wedged head (e.g. PROCESSING forever) so a
+        silent speak-loop stall is visible at INFO/WARNING without a restart.
+        """
         async with self.__condition:
+            last_stuck_log = 0.0
             while len(self.__items) == 0 or self.__items[0].state != state:
-                await self.__condition.wait()
+                try:
+                    await asyncio.wait_for(
+                        self.__condition.wait(), timeout=10.0
+                    )
+                except TimeoutError:
+                    if not self.__items:
+                        continue
+                    head = self.__items[0]
+                    if head.state == state:
+                        break
+                    now = time.monotonic()
+                    if now - last_stuck_log >= stuck_log_every_sec:
+                        last_stuck_log = now
+                        logger.warning(
+                            'queue_head_stuck guild_id=%s depth=%s '
+                            'head_state=%s head_age_s=%.1f message_id=%s '
+                            'content=%r',
+                            self._guild_id,
+                            len(self.__items),
+                            head.state.name,
+                            max(0.0, time.time() - head.timestamp),
+                            head.original.id,
+                            (head.content or '')[:80],
+                        )
             return self.__items[0]
 
     async def notify_state_change(self) -> None:

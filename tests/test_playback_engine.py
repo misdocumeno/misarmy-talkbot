@@ -211,6 +211,39 @@ async def test_enqueue_failed_tts_announces_and_removes(
 
 
 @pytest.mark.asyncio
+async def test_track_end_timeout_skips_and_continues(
+    engine_setup: tuple[PlaybackEngine, FakeLavalinkSession, MetricsRegistry],
+) -> None:
+    """Missing TrackEnd must not freeze the guild speak loop forever."""
+    engine, lavalink, metrics = engine_setup
+    engine._track_timeout_override = 0.05
+    audio = ready_audio_message()
+    await engine._queue.put(audio)
+
+    fake_track = MagicMock(name='track')
+
+    async def fake_fetch(_query: str, *, node: object = None) -> list[object]:
+        _ = node
+        return [fake_track]
+
+    import wavelink
+
+    original_fetch = wavelink.Pool.fetch_tracks
+    wavelink.Pool.fetch_tracks = fake_fetch  # type: ignore[assignment]
+    try:
+        await asyncio.wait_for(engine._play_one(audio), timeout=1.0)
+    finally:
+        wavelink.Pool.fetch_tracks = original_fetch  # type: ignore[assignment]
+
+    assert lavalink.player.play_calls == [fake_track]
+    assert lavalink.player.skip_calls == 1
+    assert len(engine._queue) == 0
+    assert (
+        metrics._counters.get('speak_track_timeouts_total', {}).get(7, 0) == 1
+    )
+
+
+@pytest.mark.asyncio
 async def test_stop_member_removes_only_their_messages(
     engine_setup: tuple[PlaybackEngine, FakeLavalinkSession, MetricsRegistry],
 ) -> None:

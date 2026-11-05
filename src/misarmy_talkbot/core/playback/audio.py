@@ -66,6 +66,9 @@ class AudioMessage:
         self.fallback_notice_msgid: str | None = None
         self._session: AudioStreamSession | None = None
         self._generation = 0
+        # Generation that last entered PROCESSING; used to clear a wedged head
+        # without racing a newer process() that already re-entered PROCESSING.
+        self._processing_generation = -1
         self._http = http_server or AudioHttpServer.instance()
         self._usage_store = usage_store or TtsUsageStore.instance()
 
@@ -78,13 +81,31 @@ class AudioMessage:
         generation = self._generation
         author = cast('discord.Member', self.original.author)
         self.state = AudioState.PROCESSING
+        self._processing_generation = generation
 
         voice_settings = await get_voice(author)
         logger.debug('tts_processing %r %s', self.content, voice_settings)
 
         if self.content == '':
+            # Empty → READY with no track_url so the speak loop drops it without
+            # wedging behind a FAILED announce. Forwards with no snapshot text
+            # land here; we must still leave a terminal state.
+            flags = getattr(self.original, 'flags', None)
+            forwarded = bool(
+                getattr(flags, 'forwarded', False)
+                if flags is not None
+                else False
+            )
+            logger.info(
+                'tts_skip_empty message_id=%s forwarded=%s snapshots=%s',
+                self.original.id,
+                forwarded,
+                len(getattr(self.original, 'message_snapshots', None) or []),
+            )
             if generation == self._generation:
                 self.state = AudioState.READY
+            else:
+                self._abandon_stale_processing(generation)
             return
 
         guild = self.original.guild
@@ -118,6 +139,7 @@ class AudioMessage:
                 voice_settings.voice,
             )
             if generation != self._generation:
+                self._abandon_stale_processing(generation)
                 return
             self.state = AudioState.FAILED
             await self._record_usage(
@@ -147,6 +169,7 @@ class AudioMessage:
                 error_message,
             )
             if generation != self._generation:
+                self._abandon_stale_processing(generation)
                 return
             self.state = AudioState.FAILED
             await self._record_usage(
@@ -164,6 +187,7 @@ class AudioMessage:
         assert session is not None  # set on success path above
         if generation != self._generation:
             self._http.discard(session.stream_id)
+            self._abandon_stale_processing(generation)
             return
 
         if audio_bytes <= 0:
@@ -207,6 +231,26 @@ class AudioMessage:
             self.track_url,
             backend_name,
         )
+
+    def _abandon_stale_processing(self, generation: int) -> None:
+        """Avoid leaving the queue head wedged in PROCESSING after invalidate.
+
+        ``wait_until_head(READY)`` blocks forever if the head stays PROCESSING.
+        Only clear when this generation still owns the PROCESSING mark so a
+        newer ``process()`` is not flipped to FAILED.
+        """
+        if (
+            self._processing_generation == generation
+            and self.state == AudioState.PROCESSING
+        ):
+            logger.warning(
+                'tts_stale_processing_cleared message_id=%s '
+                'generation=%s current=%s',
+                self.original.id,
+                generation,
+                self._generation,
+            )
+            self.state = AudioState.FAILED
 
     async def _record_usage(
         self,

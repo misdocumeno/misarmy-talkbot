@@ -8,13 +8,55 @@ from misarmy_talkbot.observability.logger import logger
 from misarmy_talkbot.utils import get_emoji_name
 
 
+def raw_tts_text(message: discord.Message) -> str:
+    """Plain text Discord exposes for TTS, including forwarded snapshots.
+
+    Discord message forwards often have empty ``content``; the real text lives
+    in ``message_snapshots``. Without that, a forward is silent and easy to
+    mistake for a broken bot.
+    """
+    content = message.content or ''
+    if content.strip():
+        return content
+
+    snapshots = getattr(message, 'message_snapshots', None) or []
+    parts: list[str] = []
+    for snapshot in snapshots:
+        snap_content = getattr(snapshot, 'content', None) or ''
+        if snap_content.strip():
+            parts.append(snap_content)
+    if parts:
+        forwarded = False
+        flags = getattr(message, 'flags', None)
+        if flags is not None:
+            forwarded = bool(getattr(flags, 'forwarded', False))
+        logger.info(
+            'tts_text_from_snapshot message_id=%s forwarded=%s parts=%s',
+            message.id,
+            forwarded,
+            len(parts),
+        )
+        return '\n'.join(parts)
+    return content
+
+
 def apply_edits(message: discord.Message) -> str:
     assert message.guild is not None
-    edited = message.content.lower()
+    raw = raw_tts_text(message)
+    edited = raw.lower()
     global_replace = global_config.replacements
     guild_replace = config[message.guild].replacements
 
     all_edits = 0
+
+    # Stickers once (not inside the replace loop): mutating message.stickers
+    # used to prevent double-append, but that is unsafe on Discord cache objects.
+    edited, count = replace_stickers(
+        edited,
+        message,
+        {**global_replace.stickers, **guild_replace.stickers},
+    )
+    all_edits += count
 
     for _ in range(100):
         edits = 0
@@ -23,12 +65,6 @@ def apply_edits(message: discord.Message) -> str:
             edited,
             message.guild,
             {**global_replace.emojis, **guild_replace.emojis},
-        )
-        edits += count
-        edited, count = replace_stickers(
-            edited,
-            message,
-            {**global_replace.stickers, **guild_replace.stickers},
         )
         edits += count
         edited, count = replace_mentions(
@@ -58,11 +94,9 @@ def apply_edits(message: discord.Message) -> str:
             break
 
     if all_edits > 0:
-        logger.debug(
-            f'Applied {all_edits} edits from {message.content!r} to {edited!r}'
-        )
+        logger.debug(f'Applied {all_edits} edits from {raw!r} to {edited!r}')
     else:
-        logger.debug(f'Applied 0 edits to {message.content!r}')
+        logger.debug(f'Applied 0 edits to {raw!r}')
 
     return edited
 
@@ -122,8 +156,12 @@ def replace_stickers(
     text: str, message: discord.Message, replacements: dict[str, str]
 ) -> tuple[str, int]:
     edits = 0
-    stickers = message.stickers + regex.findall(
-        r'(\[(.+?)\]\(https://media.discordapp.net/stickers/(\d+).+?\))', text
+    stickers: list[object] = list(message.stickers)
+    stickers.extend(
+        regex.findall(
+            r'(\[(.+?)\]\(https://media.discordapp.net/stickers/(\d+).+?\))',
+            text,
+        )
     )
 
     for sticker in stickers:
@@ -132,8 +170,8 @@ def replace_stickers(
             sticker_id = sticker[2]
             sticker_name = sticker[1]
         else:
-            sticker_id = sticker.id
-            sticker_name = sticker.name
+            sticker_id = sticker.id  # type: ignore[attr-defined]
+            sticker_name = sticker.name  # type: ignore[attr-defined]
 
         if str(sticker_id) in replacements:
             replacement = replacements[str(sticker_id)]
@@ -148,7 +186,6 @@ def replace_stickers(
         else:
             text += replacement
 
-    message.stickers.clear()
     return text, edits
 
 
