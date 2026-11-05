@@ -9,7 +9,7 @@
 #
 # Always includes observability (Prometheus / Loki / Tempo / Grafana / Alloy)
 # so rare stalls are caught without enabling a separate profile.
-# Grafana: http://<host>:3000  (GF_SECURITY_* / GRAFANA_* in .env)
+# Grafana: http://<host>:3000  (GRAFANA_* / GitHub OAuth via .env)
 
 services:
   misarmy_talkbot:
@@ -94,10 +94,24 @@ services:
     ports:
       - "${GRAFANA_PORT:-3000}:3000"
     environment:
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000}
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-talkbot}
       GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_USERS_AUTO_ASSIGN_ORG_ROLE: ${GRAFANA_AUTO_ORG_ROLE:-Admin}
       GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_AUTH_BASIC_ENABLED: ${GRAFANA_BASIC_AUTH:-true}
+      GF_AUTH_DISABLE_LOGIN_FORM: ${GRAFANA_DISABLE_LOGIN_FORM:-false}
+      GF_AUTH_GITHUB_ENABLED: ${GRAFANA_GITHUB_ENABLED:-false}
+      GF_AUTH_GITHUB_ALLOW_SIGN_UP: ${GRAFANA_GITHUB_ALLOW_SIGN_UP:-true}
+      GF_AUTH_GITHUB_CLIENT_ID: ${GRAFANA_GITHUB_CLIENT_ID:-}
+      GF_AUTH_GITHUB_CLIENT_SECRET: ${GRAFANA_GITHUB_CLIENT_SECRET:-}
+      GF_AUTH_GITHUB_SCOPES: user:email,read:org
+      GF_AUTH_GITHUB_AUTH_URL: https://github.com/login/oauth/authorize
+      GF_AUTH_GITHUB_TOKEN_URL: https://github.com/login/oauth/access_token
+      GF_AUTH_GITHUB_API_URL: https://api.github.com/user
+      GF_AUTH_GITHUB_ALLOWED_ORGANIZATIONS: ${GRAFANA_GITHUB_ALLOWED_ORGS:-}
+      GF_AUTH_GITHUB_TEAM_IDS: ${GRAFANA_GITHUB_TEAM_IDS:-}
     volumes:
       - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./deploy/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro

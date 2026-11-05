@@ -12,6 +12,7 @@ from misarmy_talkbot.app.follow_ops import (
     ignore_toggle,
     unfollow_user,
 )
+from misarmy_talkbot.app.ops_access import can_run_owner_ops
 from misarmy_talkbot.app.recover_ops import (
     recover_clear_queue,
     recover_diagnose,
@@ -22,7 +23,6 @@ from misarmy_talkbot.app.recover_ops import (
     recover_reset_guild,
     recover_reset_speak,
 )
-from misarmy_talkbot.app.tts_usage_access import can_run_tts_usage
 from misarmy_talkbot.args import args
 from misarmy_talkbot.core.playback.tts.exceptions import ProsodyValidationError
 from misarmy_talkbot.core.playback.tts.settings import (
@@ -62,6 +62,20 @@ def register_commands(bot: commands.Bot) -> None:
     """
 
     dev_guild = discord.Object(id=args.dev_guild)
+
+    async def _deny_unless_owner(interaction: discord.Interaction) -> bool:
+        """Runtime owner allowlist (BOT_OWNER_* / legacy TTS_USAGE_*)."""
+        if interaction.guild is None:
+            return False
+        if can_run_owner_ops(
+            user_id=interaction.user.id, guild_id=interaction.guild.id
+        ):
+            return True
+        await interaction.followup.send(
+            translate('tts_usage_cmd_denied', interaction.guild),
+            ephemeral=True,
+        )
+        return False
 
     @bot.tree.command(
         name='follow', description=translate('follow_cmd_description')
@@ -519,6 +533,8 @@ def register_commands(bot: commands.Bot) -> None:
     @app_commands.guild_only()
     async def sync_cmd(interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
+        if not await _deny_unless_owner(interaction):
+            return
         await bot.tree.sync()
         if interaction.guild is not None:
             await bot.tree.sync(guild=interaction.guild)
@@ -535,6 +551,8 @@ def register_commands(bot: commands.Bot) -> None:
     @app_commands.guild_only()
     async def debug(interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
+        if not await _deny_unless_owner(interaction):
+            return
         from misarmy_talkbot.observability.debugpy_boot import (
             start_debugpy_if_enabled,
         )
@@ -594,8 +612,9 @@ def register_commands(bot: commands.Bot) -> None:
     @app_commands.guild_only()
     async def status_cmd(interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
-        if interaction.guild is None:
+        if not await _deny_unless_owner(interaction):
             return
+        assert interaction.guild is not None
         metrics_registry = MetricsRegistry.instance()
         rows = metrics_registry.snapshot_guild_embed_fields(
             interaction.guild.id
@@ -631,8 +650,9 @@ def register_commands(bot: commands.Bot) -> None:
         interaction: discord.Interaction,
     ) -> None:
         await interaction.response.defer(ephemeral=True)
-        if interaction.guild is None:
+        if not await _deny_unless_owner(interaction):
             return
+        assert interaction.guild is not None
         colour, body = await recover_diagnose(bot, interaction.guild.id)
         await _recover_reply(interaction, colour, body)
 
@@ -641,8 +661,9 @@ def register_commands(bot: commands.Bot) -> None:
         interaction: discord.Interaction,
     ) -> None:
         await interaction.response.defer(ephemeral=True)
-        if interaction.guild is None:
+        if not await _deny_unless_owner(interaction):
             return
+        assert interaction.guild is not None
         colour, body = await recover_drop_head(bot, interaction.guild.id)
         await _recover_reply(interaction, colour, body)
 
@@ -651,8 +672,9 @@ def register_commands(bot: commands.Bot) -> None:
         interaction: discord.Interaction,
     ) -> None:
         await interaction.response.defer(ephemeral=True)
-        if interaction.guild is None:
+        if not await _deny_unless_owner(interaction):
             return
+        assert interaction.guild is not None
         colour, body = await recover_clear_queue(bot, interaction.guild.id)
         await _recover_reply(interaction, colour, body)
 
@@ -663,8 +685,9 @@ def register_commands(bot: commands.Bot) -> None:
         interaction: discord.Interaction,
     ) -> None:
         await interaction.response.defer(ephemeral=True)
-        if interaction.guild is None:
+        if not await _deny_unless_owner(interaction):
             return
+        assert interaction.guild is not None
         colour, body = await recover_reset_speak(bot, interaction.guild.id)
         await _recover_reply(interaction, colour, body)
 
@@ -675,8 +698,9 @@ def register_commands(bot: commands.Bot) -> None:
         interaction: discord.Interaction,
     ) -> None:
         await interaction.response.defer(ephemeral=True)
-        if interaction.guild is None:
+        if not await _deny_unless_owner(interaction):
             return
+        assert interaction.guild is not None
         colour, body = await recover_reconnect_voice(bot, interaction.guild.id)
         await _recover_reply(interaction, colour, body)
 
@@ -688,8 +712,9 @@ def register_commands(bot: commands.Bot) -> None:
         interaction: discord.Interaction,
     ) -> None:
         await interaction.response.defer(ephemeral=True)
-        if interaction.guild is None:
+        if not await _deny_unless_owner(interaction):
             return
+        assert interaction.guild is not None
         colour, body = await recover_reset_guild(bot, interaction.guild.id)
         await _recover_reply(interaction, colour, body)
 
@@ -701,16 +726,18 @@ def register_commands(bot: commands.Bot) -> None:
         interaction: discord.Interaction,
     ) -> None:
         await interaction.response.defer(ephemeral=True)
-        if interaction.guild is None:
+        if not await _deny_unless_owner(interaction):
             return
+        assert interaction.guild is not None
         colour, body = await recover_reconnect_node(bot, interaction.guild.id)
         await _recover_reply(interaction, colour, body)
 
     @recover_group.command(name='dump', description='Diagnose + Grafana tip')
     async def recover_dump_cmd(interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
-        if interaction.guild is None:
+        if not await _deny_unless_owner(interaction):
             return
+        assert interaction.guild is not None
         colour, body = await recover_dump(bot, interaction.guild.id)
         await _recover_reply(interaction, colour, body)
 
@@ -729,16 +756,9 @@ def register_commands(bot: commands.Bot) -> None:
         interaction: discord.Interaction, days: int = 30
     ) -> None:
         await interaction.response.defer(ephemeral=True)
-        if interaction.guild is None:
+        if not await _deny_unless_owner(interaction):
             return
-        if not can_run_tts_usage(
-            user_id=interaction.user.id, guild_id=interaction.guild.id
-        ):
-            await interaction.followup.send(
-                translate('tts_usage_cmd_denied', interaction.guild),
-                ephemeral=True,
-            )
-            return
+        assert interaction.guild is not None
         clamped_days = max(1, min(days, 90))
         azure_settings = load_azure_speech_settings()
         google_settings = load_google_cloud_tts_settings()

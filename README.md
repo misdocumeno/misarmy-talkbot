@@ -78,8 +78,8 @@ Both compose files start two services:
 
 `docker-compose.prod.yml` always runs Prometheus + Loki + Tempo + Grafana + Alloy alongside the bot (~0.5–0.8 GiB RAM typical with 48h retention). Rare stalls only show up if this stays up.
 
-- Grafana UI: `http://<host>:3000` (default `admin` / `talkbot`, override with `GRAFANA_*` / `GF_SECURITY_*` in `.env`).
-- Bot exposes `GET /metrics` on port 9100 inside the compose network.
+- Grafana UI: `http://<host>:3000`. Default break-glass login is `admin` / `talkbot`; prefer **GitHub OAuth** via `GRAFANA_GITHUB_*` in `.env` (see `.env.example`). Create a GitHub OAuth App with callback `$GRAFANA_ROOT_URL/login/github`, then set `GRAFANA_GITHUB_ENABLED=true` and optionally `GRAFANA_DISABLE_LOGIN_FORM=true`.
+- Bot exposes `GET /metrics` on port 9100 inside the compose network (Prometheus scrapes it; SSH + `curl` to Prometheus/Loki/Tempo APIs is enough for ops without the UI).
 - JSON logs (`LOG_FORMAT=json`) go to Loki via Alloy; traces go to Tempo via OTLP.
 - Stall detection alerts on frozen Lavalink progress / wedged TTS without auto-skipping audio.
 - Admin slash group `/recover` (`diagnose`, `drop_head`, `clear_queue`, `reset_speak`, `reconnect_voice`, `reset_guild`, `reconnect_node`, `dump`) repairs runtime while preserving follow state.
@@ -210,8 +210,8 @@ fall back to the base locale.
 | `GOOGLE_TTS_ALLOW_STUDIO` | off | List Studio voices + honor `GOOGLE_TTS_CAP_STUDIO` (1M free then $160/1M) |
 | `GOOGLE_TTS_CAP_STUDIO` | `1000000` | Soft cap for Studio SKU (only if allow Studio) |
 | `GOOGLE_TTS_MONTHLY_CAP` | (legacy) | If set and `CAP_NEURAL2`/`CAP_CHIRP3` unset, seeds those two caps |
-| `TTS_USAGE_ALLOWED_USER_IDS` | (empty=deny) | Comma-separated Discord user IDs allowed to run `/tts-usage` |
-| `TTS_USAGE_ALLOWED_GUILD_IDS` | (empty=any*) | Comma-separated guild IDs; if set, command only works there |
+| `BOT_OWNER_USER_IDS` | (empty=deny) | Your Discord user ID(s) for owner-tier ops (`/recover`, `/status`, `/tts-usage`, `/sync`, `/debug`) |
+| `BOT_OWNER_GUILD_IDS` | (empty=deny*) | Guild ID(s) where those ops work (*legacy `TTS_USAGE_*` still accepted if `BOT_OWNER_*` unset) |
 | `LOG_LEVEL` | `INFO` | stderr log level (bot) |
 | `LANG` | `en_US` (bundled) | Gettext locale for slash descriptions and presence (`es_AR`, custom codes under `config/locales/`, …) |
 | `GRACE_DROP_SECONDS` | `60` | Voice disconnect grace before auto-unfollow |
