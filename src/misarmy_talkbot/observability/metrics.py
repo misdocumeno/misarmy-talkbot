@@ -1,4 +1,4 @@
-"""Lightweight counters and gauges for operator visibility (embed + optional snapshots)."""
+"""In-process metrics + Prometheus dual-write for operator visibility."""
 
 from __future__ import annotations
 
@@ -6,13 +6,59 @@ import asyncio
 from collections import defaultdict
 from typing import Any
 
+_prom_counters: dict[str, Any] = {}
+_prom_gauges: dict[str, Any] = {}
+_prom_ready = False
+
+
+def _ensure_prom() -> bool:
+    global _prom_ready
+    if _prom_ready:
+        return True
+    try:
+        from prometheus_client import Counter, Gauge
+
+        # Lazy registry: create labeled metrics on first use via helpers below.
+        _prom_counters['__Counter'] = Counter
+        _prom_gauges['__Gauge'] = Gauge
+        _prom_ready = True
+        return True
+    except Exception:
+        return False
+
+
+def _prom_counter(key: str) -> Any | None:
+    if not _ensure_prom():
+        return None
+    counter = _prom_counters.get(key)
+    if counter is None:
+        Counter = _prom_counters['__Counter']
+        counter = Counter(
+            f'talkbot_{key}',
+            f'Talkbot counter {key}',
+            ['guild_id'],
+        )
+        _prom_counters[key] = counter
+    return counter
+
+
+def _prom_gauge(key: str) -> Any | None:
+    if not _ensure_prom():
+        return None
+    gauge = _prom_gauges.get(key)
+    if gauge is None:
+        Gauge = _prom_gauges['__Gauge']
+        gauge = Gauge(
+            f'talkbot_{key}',
+            f'Talkbot gauge {key}',
+            ['guild_id'],
+        )
+        _prom_gauges[key] = gauge
+    return gauge
+
 
 class MetricsRegistry:
-    """Process-wide metrics bag (guild-scoped counters plus a few process fields).
-
-    Implemented in-process rather than Prometheus so a small Discord bot can ship metrics
-    without another moving part; the snapshot loop exists mainly to spot task leaks.
-    """
+    """Guild-scoped counters/gauges mirrored to Prometheus when available."""
 
     _instance: MetricsRegistry | None = None
 
@@ -39,9 +85,15 @@ class MetricsRegistry:
 
     def inc(self, key: str, guild_id: int, n: int = 1) -> None:
         self._counters[key][guild_id] += int(n)
+        counter = _prom_counter(key)
+        if counter is not None:
+            counter.labels(guild_id=str(guild_id)).inc(n)
 
     def set_gauge(self, key: str, guild_id: int, value: float) -> None:
         self._gauges[key][guild_id] = float(value)
+        gauge = _prom_gauge(key)
+        if gauge is not None:
+            gauge.labels(guild_id=str(guild_id)).set(float(value))
 
     def set_process(self, key: str, value: float | int) -> None:
         self._process[key] = value

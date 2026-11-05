@@ -211,36 +211,30 @@ async def test_enqueue_failed_tts_announces_and_removes(
 
 
 @pytest.mark.asyncio
-async def test_track_end_timeout_skips_and_continues(
+async def test_player_update_advances_progress_heartbeat(
     engine_setup: tuple[PlaybackEngine, FakeLavalinkSession, MetricsRegistry],
 ) -> None:
-    """Missing TrackEnd must not freeze the guild speak loop forever."""
-    engine, lavalink, metrics = engine_setup
-    engine._track_timeout_override = 0.05
+    engine, _lavalink, _metrics = engine_setup
+    audio = ready_audio_message()
+    engine._current = audio
+    engine.play_started_monotonic = 0.0
+    engine.last_progress_monotonic = 0.0
+    engine.last_position_ms = 0
+    engine.on_player_update(500)
+    assert engine.last_position_ms == 500
+    assert engine.last_progress_monotonic is not None
+    assert engine.note_progress_for_stall() is not None
+
+
+@pytest.mark.asyncio
+async def test_drop_head_removes_queued_item(
+    engine_setup: tuple[PlaybackEngine, FakeLavalinkSession, MetricsRegistry],
+) -> None:
+    engine, _lavalink, _metrics = engine_setup
     audio = ready_audio_message()
     await engine._queue.put(audio)
-
-    fake_track = MagicMock(name='track')
-
-    async def fake_fetch(_query: str, *, node: object = None) -> list[object]:
-        _ = node
-        return [fake_track]
-
-    import wavelink
-
-    original_fetch = wavelink.Pool.fetch_tracks
-    wavelink.Pool.fetch_tracks = fake_fetch  # type: ignore[assignment]
-    try:
-        await asyncio.wait_for(engine._play_one(audio), timeout=1.0)
-    finally:
-        wavelink.Pool.fetch_tracks = original_fetch  # type: ignore[assignment]
-
-    assert lavalink.player.play_calls == [fake_track]
-    assert lavalink.player.skip_calls == 1
+    assert await engine.drop_head() is True
     assert len(engine._queue) == 0
-    assert (
-        metrics._counters.get('speak_track_timeouts_total', {}).get(7, 0) == 1
-    )
 
 
 @pytest.mark.asyncio

@@ -12,6 +12,16 @@ from misarmy_talkbot.app.follow_ops import (
     ignore_toggle,
     unfollow_user,
 )
+from misarmy_talkbot.app.recover_ops import (
+    recover_clear_queue,
+    recover_diagnose,
+    recover_drop_head,
+    recover_dump,
+    recover_reconnect_node,
+    recover_reconnect_voice,
+    recover_reset_guild,
+    recover_reset_speak,
+)
 from misarmy_talkbot.app.tts_usage_access import can_run_tts_usage
 from misarmy_talkbot.args import args
 from misarmy_talkbot.core.playback.tts.exceptions import ProsodyValidationError
@@ -598,6 +608,113 @@ def register_commands(bot: commands.Bot) -> None:
         if not rows:
             embed.description = 'No metrics recorded yet for this guild.'
         await interaction.followup.send(embed=embed, ephemeral=True)
+
+    recover_group = app_commands.Group(
+        name='recover',
+        description='Repair talkbot runtime without clearing follow state.',
+        default_permissions=discord.Permissions(administrator=True),
+        guild_only=True,
+    )
+
+    async def _recover_reply(
+        interaction: discord.Interaction,
+        colour: discord.Colour,
+        body: str,
+    ) -> None:
+        embed = discord.Embed(
+            title='Recover', description=body[:4000], color=colour
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @recover_group.command(name='diagnose', description='Show runtime state')
+    async def recover_diagnose_cmd(
+        interaction: discord.Interaction,
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+        if interaction.guild is None:
+            return
+        colour, body = await recover_diagnose(bot, interaction.guild.id)
+        await _recover_reply(interaction, colour, body)
+
+    @recover_group.command(name='drop_head', description='Drop queue head')
+    async def recover_drop_head_cmd(
+        interaction: discord.Interaction,
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+        if interaction.guild is None:
+            return
+        colour, body = await recover_drop_head(bot, interaction.guild.id)
+        await _recover_reply(interaction, colour, body)
+
+    @recover_group.command(name='clear_queue', description='Clear TTS queue')
+    async def recover_clear_queue_cmd(
+        interaction: discord.Interaction,
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+        if interaction.guild is None:
+            return
+        colour, body = await recover_clear_queue(bot, interaction.guild.id)
+        await _recover_reply(interaction, colour, body)
+
+    @recover_group.command(
+        name='reset_speak', description='Restart speak loop'
+    )
+    async def recover_reset_speak_cmd(
+        interaction: discord.Interaction,
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+        if interaction.guild is None:
+            return
+        colour, body = await recover_reset_speak(bot, interaction.guild.id)
+        await _recover_reply(interaction, colour, body)
+
+    @recover_group.command(
+        name='reconnect_voice', description='Reconnect guild voice player'
+    )
+    async def recover_reconnect_voice_cmd(
+        interaction: discord.Interaction,
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+        if interaction.guild is None:
+            return
+        colour, body = await recover_reconnect_voice(bot, interaction.guild.id)
+        await _recover_reply(interaction, colour, body)
+
+    @recover_group.command(
+        name='reset_guild',
+        description='Recreate guild session; preserve follows',
+    )
+    async def recover_reset_guild_cmd(
+        interaction: discord.Interaction,
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+        if interaction.guild is None:
+            return
+        colour, body = await recover_reset_guild(bot, interaction.guild.id)
+        await _recover_reply(interaction, colour, body)
+
+    @recover_group.command(
+        name='reconnect_node',
+        description='Reconnect shared Lavalink node',
+    )
+    async def recover_reconnect_node_cmd(
+        interaction: discord.Interaction,
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+        if interaction.guild is None:
+            return
+        colour, body = await recover_reconnect_node(bot, interaction.guild.id)
+        await _recover_reply(interaction, colour, body)
+
+    @recover_group.command(name='dump', description='Diagnose + Grafana tip')
+    async def recover_dump_cmd(interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        if interaction.guild is None:
+            return
+        colour, body = await recover_dump(bot, interaction.guild.id)
+        await _recover_reply(interaction, colour, body)
+
+    bot.tree.add_command(recover_group)
 
     @bot.tree.command(
         name='tts-usage',

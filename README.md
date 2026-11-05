@@ -74,6 +74,18 @@ Both compose files start two services:
 - `lavalink` — Java audio node (image `ghcr.io/lavalink-devs/lavalink:4`).
 - `misarmy_talkbot` — the bot (`docker-compose.yml` builds locally; `docker-compose.prod.yml` uses `ghcr.io/misdocumeno/misarmy-talkbot:latest`).
 
+### Observability (always on in production)
+
+`docker-compose.prod.yml` always runs Prometheus + Loki + Tempo + Grafana + Alloy alongside the bot (~0.5–0.8 GiB RAM typical with 48h retention). Rare stalls only show up if this stays up.
+
+- Grafana UI: `http://<host>:3000` (default `admin` / `talkbot`, override with `GRAFANA_*` / `GF_SECURITY_*` in `.env`).
+- Bot exposes `GET /metrics` on port 9100 inside the compose network.
+- JSON logs (`LOG_FORMAT=json`) go to Loki via Alloy; traces go to Tempo via OTLP.
+- Stall detection alerts on frozen Lavalink progress / wedged TTS without auto-skipping audio.
+- Admin slash group `/recover` (`diagnose`, `drop_head`, `clear_queue`, `reset_speak`, `reconnect_voice`, `reset_guild`, `reconnect_node`, `dump`) repairs runtime while preserving follow state.
+
+Local `docker-compose.yml` stays bot + Lavalink only for a lighter dev loop.
+
 Detached (dev):
 
 ```bash
@@ -81,7 +93,7 @@ docker compose up --build -d
 docker compose logs -f misarmy_talkbot
 ```
 
-Logs (development and production): everything goes to **stdout/stderr** — bot and Lavalink. Tail with `docker compose logs -f misarmy_talkbot` or `docker compose logs -f lavalink`. No log files, bind mounts, or log volumes.
+Logs: everything goes to **stdout/stderr** — bot and Lavalink. Tail with `docker compose logs -f misarmy_talkbot` or `docker compose logs -f lavalink`. In production the same stdout is also ingested by Loki.
 
 Config volume (`misarmy-talkbot-config`): the image creates `/home/bot/config` as user `bot` so Docker copies **uid 1000** ownership into a **new** volume on first use. If a volume was already created with an older image (root-owned), remove only that volume once (`docker compose down`, `docker volume rm <project>_misarmy-talkbot-config`, restore `config/` from backup, `up -d`).
 

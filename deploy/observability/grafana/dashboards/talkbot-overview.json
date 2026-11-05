@@ -1,0 +1,57 @@
+{
+  "title": "Talkbot overview",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Queue depth",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "talkbot_queue_depth",
+          "legendFormat": "{{guild_id}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Speak blocked seconds",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "talkbot_speak_blocked_seconds",
+          "legendFormat": "{{guild_id}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Messages played / enqueued",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "rate(talkbot_messages_played_total[5m])",
+          "legendFormat": "played {{guild_id}}"
+        },
+        {
+          "expr": "rate(talkbot_messages_enqueued_total[5m])",
+          "legendFormat": "enqueued {{guild_id}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Stalls detected",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "increase(talkbot_stall_detected_total[1h])",
+          "legendFormat": "{{guild_id}}"
+        }
+      ]
+    }
+  ]
+}

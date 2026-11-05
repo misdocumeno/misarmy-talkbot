@@ -7,14 +7,16 @@ Two cooperating concerns:
    semaphore bounds the concurrent TTS workload.
 2. ``_speak_loop`` waits for the head of the queue to reach ``READY``, joins the
    master's voice channel via Lavalink, and asks the player to play the HTTP URL.
-   It blocks on ``_track_done`` (set by ``on_track_end`` / ``on_track_exception``)
-   with a hard timeout so a missing TrackEnd cannot silence the guild forever.
+   It blocks on ``_track_done`` (set by ``on_track_end`` / ``on_track_exception``).
+   Stall detection (no auto-skip) lives in the observability stall watcher and
+   uses Lavalink position progress, not a blind wall-clock timeout.
 """
 
 from __future__ import annotations
 
 import asyncio
 import os
+import time
 from typing import TYPE_CHECKING
 
 import discord
@@ -24,22 +26,13 @@ from misarmy_talkbot.core.follow.registry import FollowRegistry
 from misarmy_talkbot.core.playback.audio import AudioState
 from misarmy_talkbot.core.playback.queue import MessageQueue
 from misarmy_talkbot.observability.logger import logger
+from misarmy_talkbot.observability.tracing import speak_span
 
 if TYPE_CHECKING:
     from misarmy_talkbot.core.ops.announcer import ErrorReplyAnnouncer
     from misarmy_talkbot.core.playback.audio import AudioMessage
     from misarmy_talkbot.core.voice.lavalink_session import LavalinkSession
     from misarmy_talkbot.observability.metrics import MetricsRegistry
-
-
-def _env_float(name: str, default: float) -> float:
-    raw = os.getenv(name)
-    if raw is None or raw.strip() == '':
-        return default
-    try:
-        return float(raw)
-    except ValueError:
-        return default
 
 
 class PlaybackEngine:
@@ -65,16 +58,15 @@ class PlaybackEngine:
         # Keep this low: Edge TTS returns intermittent 429 under chat bursts.
         max_concurrent = max(1, int(os.getenv('TTS_MAX_CONCURRENT', '2')))
         self._gen_semaphore = asyncio.Semaphore(max_concurrent)
-        self._tts_timeout_sec = max(
-            5.0, _env_float('TTS_PROCESS_TIMEOUT_SEC', 60.0)
-        )
-        self._track_timeout_override = _env_float(
-            'PLAYBACK_TRACK_TIMEOUT_SEC', 0.0
-        )
         self._stopped = False
         self._current: AudioMessage | None = None
         self._track_done = asyncio.Event()
         self._track_failure: str | None = None
+        # Stall watcher reads these (progress heartbeat from Lavalink updates).
+        self.play_started_monotonic: float | None = None
+        self.last_position_ms: int = 0
+        self.last_progress_monotonic: float | None = None
+        self.current_track_length_ms: int | None = None
 
     def _master_voice_channel(
         self,
@@ -171,21 +163,12 @@ class PlaybackEngine:
     async def _process_audio(self, audio: AudioMessage) -> None:
         async with self._gen_semaphore:
             try:
-                await asyncio.wait_for(
-                    audio.process(), timeout=self._tts_timeout_sec
-                )
-            except TimeoutError:
-                logger.error(
-                    'tts_timeout guild_id=%s timeout_s=%s message_id=%s '
-                    'content=%r',
-                    self.guild_id,
-                    self._tts_timeout_sec,
-                    audio.original.id,
-                    audio.content[:120],
-                )
-                audio.state = AudioState.FAILED
-                if self._metrics:
-                    self._metrics.inc('tts_timeouts_total', self.guild_id)
+                with speak_span(
+                    'tts',
+                    guild_id=self.guild_id,
+                    message_id=audio.original.id,
+                ):
+                    await audio.process()
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -333,6 +316,7 @@ class PlaybackEngine:
     def on_track_end(self, _payload: wavelink.TrackEndEventPayload) -> None:
         if self._metrics:
             self._metrics.inc('lavalink_track_end_total', self.guild_id)
+        self._clear_play_progress()
         self._track_done.set()
 
     def on_track_exception(
@@ -345,6 +329,7 @@ class PlaybackEngine:
         )
         if self._metrics:
             self._metrics.inc('lavalink_track_exception_total', self.guild_id)
+        self._clear_play_progress()
         self._track_done.set()
 
     def on_track_stuck(
@@ -353,7 +338,90 @@ class PlaybackEngine:
         self._track_failure = 'stuck'
         if self._metrics:
             self._metrics.inc('lavalink_track_stuck_total', self.guild_id)
+        self._clear_play_progress()
         self._track_done.set()
+
+    def on_player_update(self, position_ms: int) -> None:
+        """Lavalink progress heartbeat; stall watcher uses last_progress_monotonic."""
+        if self._current is None:
+            return
+        if position_ms > self.last_position_ms:
+            self.last_position_ms = position_ms
+            self.last_progress_monotonic = time.monotonic()
+            if self._metrics:
+                self._metrics.set_gauge(
+                    'speak_position_ms', self.guild_id, float(position_ms)
+                )
+
+    def _clear_play_progress(self) -> None:
+        self.play_started_monotonic = None
+        self.last_position_ms = 0
+        self.last_progress_monotonic = None
+        self.current_track_length_ms = None
+        if self._metrics:
+            self._metrics.set_gauge(
+                'speak_blocked_seconds', self.guild_id, 0.0
+            )
+            self._metrics.set_gauge('speak_position_ms', self.guild_id, 0.0)
+
+    def note_progress_for_stall(self) -> float | None:
+        """Seconds since last position advance while a track is current, else None."""
+        if self._current is None or self.last_progress_monotonic is None:
+            return None
+        return max(0.0, time.monotonic() - self.last_progress_monotonic)
+
+    @property
+    def queue(self) -> MessageQueue:
+        return self._queue
+
+    @property
+    def current(self) -> AudioMessage | None:
+        return self._current
+
+    @property
+    def gen_task_count(self) -> int:
+        return sum(1 for task in self._gen_tasks if not task.done())
+
+    def has_gen_task_for(self, message_id: int) -> bool:
+        task = self._gen_by_message.get(message_id)
+        return task is not None and not task.done()
+
+    async def drop_head(self) -> bool:
+        """Operator recover: drop current queue head (or playing item)."""
+        head = (
+            self._current if self._current is not None else self._queue.head()
+        )
+        if head is None:
+            return False
+        if self._current is head:
+            await self._skip_current(reason='recover_drop_head')
+            return True
+        previous = self._gen_by_message.get(head.original.id)
+        if previous is not None and not previous.done():
+            previous.cancel()
+        await self._queue.remove(head)
+        await head.cleanup()
+        if self._metrics:
+            self._metrics.set_gauge(
+                'queue_depth', self.guild_id, float(len(self._queue))
+            )
+        return True
+
+    async def restart_speak_loop(self) -> None:
+        """Cancel and recreate the speak task; keep queue and follow state."""
+        if self._speak_task is not None and not self._speak_task.done():
+            self._speak_task.cancel()
+            try:
+                await self._speak_task
+            except asyncio.CancelledError:
+                pass
+        self._stopped = False
+        self._track_done.set()
+        self._track_done.clear()
+        self._current = None
+        self._clear_play_progress()
+        self.start()
+        await self._queue.notify_state_change()
 
     async def _supervised_speak(self) -> None:
         backoff = 1.0
@@ -462,8 +530,20 @@ class PlaybackEngine:
         self._current = audio
         self._track_done.clear()
         self._track_failure = None
+        length = getattr(track, 'length', None)
+        self.current_track_length_ms = (
+            int(length) if isinstance(length, int | float) else None
+        )
+        self.play_started_monotonic = time.monotonic()
+        self.last_position_ms = 0
+        self.last_progress_monotonic = time.monotonic()
         try:
-            await self._lavalink.play_track(player, track)
+            with speak_span(
+                'play',
+                guild_id=self.guild_id,
+                message_id=audio.original.id,
+            ):
+                await self._lavalink.play_track(player, track)
         except wavelink.LavalinkException as exc:
             logger.error(
                 'speak_play_failed guild_id=%s lavalink_message=%s',
@@ -471,6 +551,7 @@ class PlaybackEngine:
                 getattr(exc, 'message', str(exc)),
             )
             self._current = None
+            self._clear_play_progress()
             await self._announcer.announce(
                 audio.original,
                 'playback',
@@ -481,6 +562,7 @@ class PlaybackEngine:
         except Exception:
             logger.exception('speak_play_failed guild_id=%s', self.guild_id)
             self._current = None
+            self._clear_play_progress()
             await self._announcer.announce(
                 audio.original,
                 'playback',
@@ -489,29 +571,14 @@ class PlaybackEngine:
             await self._drop_head(audio)
             return
 
-        timeout = self._track_wait_timeout(audio)
-        try:
-            await asyncio.wait_for(self._track_done.wait(), timeout=timeout)
-        except TimeoutError:
-            logger.error(
-                'speak_track_timeout guild_id=%s timeout_s=%.1f '
-                'message_id=%s bytes=%s; forcing skip so queue can continue',
-                self.guild_id,
-                timeout,
-                audio.original.id,
-                audio.audio_bytes,
-            )
-            if self._metrics:
-                self._metrics.inc('speak_track_timeouts_total', self.guild_id)
-            self._track_failure = 'timeout'
-            try:
-                await player.skip(force=True)
-            except Exception:
-                logger.exception(
-                    'speak_track_timeout_skip_failed guild_id=%s',
-                    self.guild_id,
-                )
+        with speak_span(
+            'await_track_end',
+            guild_id=self.guild_id,
+            message_id=audio.original.id,
+        ):
+            await self._track_done.wait()
         self._current = None
+        self._clear_play_progress()
         if self._track_failure:
             logger.warning(
                 'speak_track_failed guild_id=%s reason=%s',
@@ -522,14 +589,6 @@ class PlaybackEngine:
             if self._metrics:
                 self._metrics.inc('messages_played_total', self.guild_id)
         await self._drop_head(audio)
-
-    def _track_wait_timeout(self, audio: AudioMessage) -> float:
-        """Seconds to wait for TrackEnd before treating playback as stuck."""
-        if self._track_timeout_override > 0:
-            return self._track_timeout_override
-        # ~128 kbps MP3 ≈ 16 KiB/s; pad so short clips still get a floor.
-        from_bytes = (audio.audio_bytes / 16000.0) + 15.0
-        return min(max(20.0, from_bytes), 600.0)
 
     async def _drop_head(self, audio: AudioMessage) -> None:
         await self._queue.remove(audio)

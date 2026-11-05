@@ -31,6 +31,8 @@ from misarmy_talkbot.core.follow.registry import FollowRegistry
 from misarmy_talkbot.core.session.registry import GuildSessionRegistry
 from misarmy_talkbot.infra.audio_http import AudioHttpServer
 from misarmy_talkbot.observability.logger import logger
+from misarmy_talkbot.observability.metrics_http import stop_metrics_http
+from misarmy_talkbot.observability.stall import stall_stop_event
 
 
 class TalkBot(commands.Bot):
@@ -120,6 +122,7 @@ def run_bot() -> None:
         async def _close() -> None:
             metrics_snapshot_stop_event().set()
             audio_janitor_stop_event().set()
+            stall_stop_event().set()
             try:
                 await asyncio.wait_for(
                     GuildSessionRegistry.instance().dispose_all(),
@@ -135,6 +138,10 @@ def run_bot() -> None:
                 await AudioHttpServer.instance().stop()
             except Exception:
                 logger.exception('shutdown_audio_http')
+            try:
+                await stop_metrics_http()
+            except Exception:
+                logger.exception('shutdown_metrics_http')
             await bot.close()
 
         bot.loop.create_task(_close())

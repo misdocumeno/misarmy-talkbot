@@ -37,6 +37,9 @@ from misarmy_talkbot.infra.database.tts_usage import TtsUsageStore
 from misarmy_talkbot.observability.debugpy_boot import start_debugpy_if_enabled
 from misarmy_talkbot.observability.logger import logger
 from misarmy_talkbot.observability.metrics import MetricsRegistry
+from misarmy_talkbot.observability.metrics_http import start_metrics_http
+from misarmy_talkbot.observability.stall import StallWatcher, stall_stop_event
+from misarmy_talkbot.observability.tracing import setup_tracing
 from misarmy_talkbot.utils import is_deafened, voices_list
 
 if TYPE_CHECKING:
@@ -73,7 +76,9 @@ async def _first_boot(bot: commands.Bot) -> None:
         await create_tables()
         await migrate_voice_prefix_to_ms()
         TtsRegistry.build_default(TtsUsageStore.instance())
+        setup_tracing()
         await AudioHttpServer.instance().start()
+        await start_metrics_http()
         # Warm voice catalogs so /voice autocomplete is instant.
         try:
             warmed = await voices_list()
@@ -91,6 +96,10 @@ async def _first_boot(bot: commands.Bot) -> None:
                 metrics_snapshot_stop_event(), interval
             ),
             name='metrics_snapshot_loop',
+        )
+        asyncio.create_task(
+            StallWatcher().run(stall_stop_event()),
+            name='stall_watcher',
         )
         # Orphan sweep for any leftover files from older tmpfs deploys.
         asyncio.create_task(
@@ -381,6 +390,14 @@ def register_events(bot: commands.Bot) -> None:
         guild_session = _session_for_payload(payload)
         if guild_session is not None:
             guild_session.engine.on_track_stuck(payload)
+
+    @bot.event
+    async def on_wavelink_player_update(
+        payload: wavelink.PlayerUpdateEventPayload,
+    ) -> None:
+        guild_session = _session_for_payload(payload)
+        if guild_session is not None:
+            guild_session.engine.on_player_update(int(payload.position))
 
     @bot.event
     async def on_wavelink_websocket_closed(
