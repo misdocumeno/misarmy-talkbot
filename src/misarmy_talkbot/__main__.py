@@ -6,14 +6,17 @@ import sys
 from dotenv import load_dotenv
 
 from misarmy_talkbot.observability.logger import logger
+from misarmy_talkbot.observability.startup import startup_tracker
 from misarmy_talkbot.paths import REPO_ROOT
 
 load_dotenv(REPO_ROOT / '.env')
+startup_tracker().checkpoint('config')
 
 
 def main() -> None:
     from misarmy_talkbot.app.bot import run_bot
 
+    startup_tracker().checkpoint('imports_app')
     run_bot()
 
 

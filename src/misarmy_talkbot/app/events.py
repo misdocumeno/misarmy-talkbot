@@ -43,7 +43,7 @@ from misarmy_talkbot.observability.logger import logger
 from misarmy_talkbot.observability.metrics import MetricsRegistry
 from misarmy_talkbot.observability.metrics_http import start_metrics_http
 from misarmy_talkbot.observability.stall import StallWatcher, stall_stop_event
-from misarmy_talkbot.observability.tracing import setup_tracing
+from misarmy_talkbot.observability.startup import startup_tracker
 from misarmy_talkbot.utils import is_deafened, voices_list
 
 if TYPE_CHECKING:
@@ -76,24 +76,31 @@ def audio_janitor_stop_event() -> asyncio.Event:
 async def _first_boot(bot: commands.Bot) -> None:
     """DB + per-guild config after login; must not block the gateway READY handler."""
     logger.info('first_boot ENTER guild_count=%s', len(bot.guilds))
+    tracker = startup_tracker()
     try:
-        await create_tables()
-        await migrate_voice_prefix_to_ms()
-        TtsRegistry.build_default(TtsUsageStore.instance())
-        setup_tracing()
-        await AudioHttpServer.instance().start()
-        await start_metrics_http()
+        with tracker.phase('db_open'):
+            await create_tables()
+        with tracker.phase('migrations_check'):
+            await migrate_voice_prefix_to_ms()
+        with tracker.phase('tts_setup'):
+            TtsRegistry.build_default(TtsUsageStore.instance())
+        with tracker.phase('audio_http'):
+            await AudioHttpServer.instance().start()
+        with tracker.phase('metrics_http'):
+            await start_metrics_http()
         # Warm voice catalogs so /voice autocomplete is instant.
-        try:
-            warmed = await voices_list()
-            logger.info('voices_catalog_warmed count=%s', len(warmed))
-        except Exception:
-            logger.exception('voices_catalog_warm_failed')
-        await _load_guild_config(None)
-
-        await apply_global_presence(bot)
-        for guild in bot.guilds:
-            await _load_guild_config(guild)
+        with tracker.phase('voices_warm'):
+            try:
+                warmed = await voices_list()
+                logger.info('voices_catalog_warmed count=%s', len(warmed))
+            except Exception:
+                logger.exception('voices_catalog_warm_failed')
+        with tracker.phase('guild_config'):
+            await _load_guild_config(None)
+            await apply_global_presence(bot)
+            for guild in bot.guilds:
+                await _load_guild_config(guild)
+        tracker.mark_ready()
         interval = float(os.getenv('METRICS_SNAPSHOT_INTERVAL_SECONDS', '300'))
         asyncio.create_task(
             MetricsRegistry.instance().snapshot_loop_task(
@@ -314,6 +321,7 @@ def register_events(bot: commands.Bot) -> None:
         asyncio.get_running_loop().call_soon(start_debugpy_if_enabled)
         if not _first_ready_done:
             _first_ready_done = True
+            startup_tracker().end('discord_login')
             asyncio.create_task(_first_boot(bot), name='first_boot')
             asyncio.create_task(_sync_slash_commands(bot), name='slash_sync')
         metrics.inc_process('on_ready_count')
@@ -354,6 +362,7 @@ def register_events(bot: commands.Bot) -> None:
             payload.session_id,
             payload.resumed,
         )
+        startup_tracker().end('lavalink_connect')
 
     @bot.event
     async def on_wavelink_node_closed(
@@ -374,6 +383,7 @@ def register_events(bot: commands.Bot) -> None:
         guild_id = _payload_guild_id(payload)
         if guild_id is not None:
             metrics.inc('lavalink_track_start_total', guild_id)
+        startup_tracker().mark_first_audio()
 
     @bot.event
     async def on_wavelink_track_end(
@@ -437,8 +447,9 @@ async def _sync_slash_commands(bot: commands.Bot) -> None:
         from misarmy_talkbot.args import args
 
         dev_guild = discord.Object(id=args.dev_guild)
-        await bot.tree.sync(guild=dev_guild)
-        await bot.tree.sync()
+        with startup_tracker().phase('command_sync'):
+            await bot.tree.sync(guild=dev_guild)
+            await bot.tree.sync()
         logger.info('slash_sync EXIT')
     except Exception:
         logger.exception('slash_sync_failed')

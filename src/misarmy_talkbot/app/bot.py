@@ -34,6 +34,8 @@ from misarmy_talkbot.infra.audio_http import AudioHttpServer
 from misarmy_talkbot.observability.logger import logger
 from misarmy_talkbot.observability.metrics_http import stop_metrics_http
 from misarmy_talkbot.observability.stall import stall_stop_event
+from misarmy_talkbot.observability.startup import startup_tracker
+from misarmy_talkbot.observability.tracing import setup_tracing
 
 
 class TalkBot(commands.Bot):
@@ -46,6 +48,7 @@ class TalkBot(commands.Bot):
     """
 
     async def setup_hook(self) -> None:
+        startup_tracker().begin('lavalink_connect')
         host = os.getenv('LAVALINK_HOST', 'lavalink')
         port = os.getenv('LAVALINK_PORT', '2333')
         password = os.getenv('LAVALINK_PASSWORD', 'youshallnotpass')
@@ -117,7 +120,10 @@ def build_bot() -> commands.Bot:
 
 def run_bot() -> None:
     """Start the bot process (blocking) and register cooperative shutdown on SIGTERM."""
+    setup_tracing()
     bot = build_bot()
+    startup_tracker().checkpoint('bot_build')
+    startup_tracker().begin('discord_login')
 
     def signal_handler(_signum: int, _frame: types.FrameType | None) -> None:
         async def _close() -> None:
