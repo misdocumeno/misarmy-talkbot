@@ -65,12 +65,21 @@ wait_healthy() {
 }
 
 deploy_image() {
-  local image="$1"
-  TALKBOT_IMAGE="$image" "${COMPOSE[@]}" up -d "$SERVICE" || return 1
-  # Restart policy was disabled for the drain (see drain_running); restore it.
-  local cid
+  local image="$1" cid running
+  # --force-recreate: never *reuse* the container. After a drain it is Exited
+  # (restart=no); plain `up -d` may print "Running" and leave it stopped when the
+  # image is unchanged. Recreating always creates and starts a fresh container,
+  # with the compose restart policy (unless-stopped) restored. --no-deps keeps
+  # lavalink/observability untouched.
+  TALKBOT_IMAGE="$image" "${COMPOSE[@]}" up -d --force-recreate --no-deps "$SERVICE" || return 1
+  # Don't trust compose's exit status alone: verify the container really runs,
+  # so a stopped container fails fast instead of burning HEALTH_TIMEOUT.
   cid="$("${COMPOSE[@]}" ps -q "$SERVICE" 2>/dev/null || true)"
-  [[ -n "$cid" ]] && docker update --restart=unless-stopped "$cid" >/dev/null
+  running="$([[ -n "$cid" ]] && docker inspect -f '{{.State.Running}}' "$cid" 2>/dev/null || echo false)"
+  if [[ "$running" != true ]]; then
+    log "container is not running after up (cid=${cid:-none}); failing this attempt"
+    return 1
+  fi
   wait_healthy
 }
 
