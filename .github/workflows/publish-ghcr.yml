@@ -16,10 +16,14 @@ permissions:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    # Only a successful CI run for a direct push to this repo's main (never a fork
+    # PR, even one whose branch is named "main"), or a manual run on main.
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'main')
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -69,7 +73,9 @@ jobs:
     if: >-
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'main')
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     concurrency:
       group: deploy-prod
       cancel-in-progress: false
