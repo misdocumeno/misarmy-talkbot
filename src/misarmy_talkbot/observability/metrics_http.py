@@ -35,8 +35,16 @@ async def start_metrics_http() -> None:
             body=body, headers={'Content-Type': CONTENT_TYPE_LATEST}
         )
 
+    async def healthz_handler(_request: web.Request) -> web.Response:
+        from misarmy_talkbot.observability.health import is_healthy
+
+        if is_healthy():
+            return web.Response(text='ok\n', status=200)
+        return web.Response(text='starting\n', status=503)
+
     app = web.Application()
     app.router.add_get('/metrics', metrics_handler)
+    app.router.add_get('/healthz', healthz_handler)
     _runner = web.AppRunner(app)
     await _runner.setup()
     _site = web.TCPSite(_runner, host=host, port=port)

@@ -31,6 +31,7 @@ from misarmy_talkbot.core.follow.grace import DisconnectSupervisor
 from misarmy_talkbot.core.follow.registry import FollowRegistry
 from misarmy_talkbot.core.session.registry import GuildSessionRegistry
 from misarmy_talkbot.infra.audio_http import AudioHttpServer
+from misarmy_talkbot.observability.health import set_health_probe
 from misarmy_talkbot.observability.logger import logger
 from misarmy_talkbot.observability.metrics_http import stop_metrics_http
 from misarmy_talkbot.observability.stall import stall_stop_event
@@ -124,6 +125,8 @@ def run_bot() -> None:
     bot = build_bot()
     startup_tracker().checkpoint('bot_build')
     startup_tracker().begin('discord_login')
+    tracker = startup_tracker()
+    set_health_probe(lambda: bot.is_ready() and tracker.ready_at_s is not None)
 
     def signal_handler(_signum: int, _frame: types.FrameType | None) -> None:
         async def _close() -> None:

@@ -26,3 +26,5 @@ __pycache__/
 # Local agent handoffs (fleet docs; never commit)
 AGENTS.md
 
+
+.last-good

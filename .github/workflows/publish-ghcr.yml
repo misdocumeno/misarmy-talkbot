@@ -58,3 +58,35 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  # Runs on the prod host via the self-hosted runner (see README: CD).
+  # Only the deploy job touches the host; build/test stay on GitHub-hosted runners.
+  deploy:
+    name: Deploy to prod host
+    needs: build-and-push
+    runs-on: [self-hosted, Linux, X64, prod-talkbot]
+    environment: production
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
+    concurrency:
+      group: deploy-prod
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: read
+    env:
+      PROD_DIR: /home/emmanuel/discord/misarmy-talkbot
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - name: Checkout (scripts from the commit being deployed)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
+
+      - name: Log in to GHCR (runner user keeps the credential)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Deploy pinned image with health gate and rollback
+        run: bash deploy/deploy.sh "$SHA"

@@ -1,0 +1,11 @@
+[Unit]
+Description=Prune dangling Docker images older than 7 days
+Documentation=https://docs.docker.com/reference/cli/docker/image/prune/
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+# Dangling (untagged) images only. Never -a, never volumes. Tagged images,
+# including the deploy's sha-* images, are handled by deploy/deploy.sh.
+ExecStart=/usr/bin/docker image prune -f --filter until=168h

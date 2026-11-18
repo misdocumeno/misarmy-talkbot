@@ -13,8 +13,18 @@
 
 services:
   misarmy_talkbot:
-    image: ghcr.io/misdocumeno/misarmy-talkbot:latest
-    pull_policy: always
+    # Pinned by deploy/deploy.sh (sha-<short> tag) so rollback is an exact image.
+    image: ${TALKBOT_IMAGE:-ghcr.io/misdocumeno/misarmy-talkbot:latest}
+    # sha tags are immutable: pull explicitly in deploy.sh, never on `up`,
+    # so a rollback to a locally kept image cannot re-fetch a moving tag.
+    pull_policy: missing
+    stop_grace_period: 60s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:9100/healthz', timeout=3).status == 200 else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     depends_on:
       lavalink:
         condition: service_healthy
