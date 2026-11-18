@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 from misarmy_talkbot.observability.logger import logger
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Generator
 
 _PROCESS_START_MONO = time.monotonic()
 _PROCESS_START_NS = time.time_ns()
@@ -131,7 +131,7 @@ class StartupTracker:
         return record
 
     @contextmanager
-    def phase(self, name: str) -> Iterator[None]:
+    def phase(self, name: str) -> Generator[None]:
         self.begin(name)
         try:
             yield
