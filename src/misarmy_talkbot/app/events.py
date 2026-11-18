@@ -15,6 +15,10 @@ import discord
 
 from misarmy_talkbot.app.follow_ops import message_for_followed
 from misarmy_talkbot.app.voice_sync import drop_follower
+from misarmy_talkbot.app.voice_watchdog import (
+    run_voice_watchdog,
+    voice_watchdog_stop_event,
+)
 from misarmy_talkbot.core.follow.grace import DisconnectSupervisor
 from misarmy_talkbot.core.follow.registry import FollowRegistry
 from misarmy_talkbot.core.playback.tts.registry import TtsRegistry
@@ -100,6 +104,10 @@ async def _first_boot(bot: commands.Bot) -> None:
         asyncio.create_task(
             StallWatcher().run(stall_stop_event()),
             name='stall_watcher',
+        )
+        asyncio.create_task(
+            run_voice_watchdog(bot, voice_watchdog_stop_event()),
+            name='voice_watchdog',
         )
         # Orphan sweep for any leftover files from older tmpfs deploys.
         asyncio.create_task(

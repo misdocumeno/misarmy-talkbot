@@ -26,6 +26,7 @@ from misarmy_talkbot.app.events import (
     register_events,
 )
 from misarmy_talkbot.app.voice_sync import reconcile_master_channel
+from misarmy_talkbot.app.voice_watchdog import voice_watchdog_stop_event
 from misarmy_talkbot.core.follow.grace import DisconnectSupervisor
 from misarmy_talkbot.core.follow.registry import FollowRegistry
 from misarmy_talkbot.core.session.registry import GuildSessionRegistry
@@ -123,6 +124,7 @@ def run_bot() -> None:
             metrics_snapshot_stop_event().set()
             audio_janitor_stop_event().set()
             stall_stop_event().set()
+            voice_watchdog_stop_event().set()
             try:
                 await asyncio.wait_for(
                     GuildSessionRegistry.instance().dispose_all(),
