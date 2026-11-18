@@ -77,7 +77,7 @@ jobs:
       contents: read
       packages: read
     env:
-      PROD_DIR: /home/emmanuel/discord/misarmy-talkbot
+      PROD_DIR: /home/gh-runner/talkbot
       SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
       - name: Checkout (scripts from the commit being deployed)
