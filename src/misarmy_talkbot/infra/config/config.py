@@ -106,8 +106,14 @@ async def get_config_json(guild: discord.Guild | None = None) -> str | None:
             return await f.read()
 
 
-async def update_config(json: str, guild: discord.Guild | None = None) -> None:
-    """Sets the json as the new config in the specified guild (global if None), persisting it to disk."""
+async def update_config(
+    json: str, guild: discord.Guild | None = None, *, persist: bool = True
+) -> None:
+    """Sets the json as the new config in the specified guild (global if None).
+
+    With ``persist=False`` only the in-memory copy is updated; used at boot when
+    the json was just read from disk and writing it back would change nothing.
+    """
     global global_config, config
     guild_config = validate_config(json, guild)
     translations.validate_locale(guild_config.locale, guild)
@@ -115,7 +121,8 @@ async def update_config(json: str, guild: discord.Guild | None = None) -> None:
         config[guild] = guild_config
     else:
         global_config = guild_config
-    await write_config_json(json, guild)
+    if persist:
+        await write_config_json(json, guild)
 
 
 async def set_default_config(guild: discord.Guild | None = None) -> None:

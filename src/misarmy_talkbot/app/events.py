@@ -97,9 +97,10 @@ async def _first_boot(bot: commands.Bot) -> None:
                 logger.exception('voices_catalog_warm_failed')
         with tracker.phase('guild_config'):
             await _load_guild_config(None)
-            await apply_global_presence(bot)
-            for guild in bot.guilds:
-                await _load_guild_config(guild)
+            await asyncio.gather(
+                apply_global_presence(bot),
+                *(_load_guild_config(guild) for guild in bot.guilds),
+            )
         tracker.mark_ready()
         interval = float(os.getenv('METRICS_SNAPSHOT_INTERVAL_SECONDS', '300'))
         asyncio.create_task(
@@ -135,9 +136,14 @@ async def _load_guild_config(guild: discord.Guild | None) -> None:
     from pydantic_core import ValidationError
 
     try:
-        await update_config(
-            await get_config_json(guild) or default_config, guild
-        )
+        raw = await get_config_json(guild)
+        if raw:
+            # Already on disk: refresh memory only. Rewriting identical content
+            # on every boot cost one write per guild for nothing.
+            await update_config(raw, guild, persist=False)
+        else:
+            # No file yet: create it from defaults.
+            await update_config(default_config, guild)
     except (ValueError, ValidationError):
         await set_default_config(guild)
         text = (
