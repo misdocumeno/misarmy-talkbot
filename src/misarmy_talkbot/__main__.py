@@ -16,7 +16,9 @@ startup_tracker().checkpoint('config')
 def main() -> None:
     from misarmy_talkbot.app.bot import run_bot
 
-    startup_tracker().checkpoint('imports_app')
+    # Only discord.py and the bot shell are loaded here; the rest of the app is
+    # imported during the Discord login (see ``app.bot``).
+    startup_tracker().checkpoint('imports_discord')
     run_bot()
 
 

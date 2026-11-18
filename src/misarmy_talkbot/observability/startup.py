@@ -1,8 +1,9 @@
 """Boot-time measurement: per-phase durations, time-to-ready, time-to-first-audio.
 
 The clock starts at import time of this module, which ``__main__`` imports
-before anything heavy, so the ``imports_app`` phase covers the cost of pulling
-in discord/wavelink/aiohttp.
+before anything heavy. ``imports_discord`` covers discord.py and the bot shell;
+``imports_app`` covers the rest of the application, which is imported during
+the Discord login so it overlaps the HTTP round-trips.
 
 Each phase is kept as wall-clock nanoseconds so that, once ready, the whole boot
 can be emitted as an OpenTelemetry root span ``startup`` with one child span per
