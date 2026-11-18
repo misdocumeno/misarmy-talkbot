@@ -200,6 +200,23 @@ class FollowRegistry:
             'version': follow_set.version,
         }
 
+    def guild_ids(self) -> list[int]:
+        return list(self._guilds)
+
+    def export_guild(self, guild_id: int) -> dict[str, Any] | None:
+        """Plain-data view of one guild's follow state, for the drain snapshot."""
+        follow_set = self._guilds.get(guild_id)
+        if follow_set is None:
+            return None
+        return {
+            'master': follow_set.master_user_id,
+            'members': sorted(follow_set.members),
+            'ignored': {
+                user_id: sorted(channels)
+                for user_id, channels in follow_set.ignored_channel_ids.items()
+            },
+        }
+
     def remove_non_masters(self, guild_id: int) -> list[int]:
         """Drop every followed user except the current master; returns dropped user ids.
 

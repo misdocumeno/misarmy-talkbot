@@ -145,6 +145,25 @@ async def _connect_lavalink(bot: commands.Bot) -> None:
         )
 
 
+def _install_sigusr1(loop: asyncio.AbstractEventLoop) -> None:
+    """SIGUSR1 starts a zero-disruption drain: finish current audio, snapshot, exit."""
+    sigusr1 = getattr(signal, 'SIGUSR1', None)
+    if sigusr1 is None:  # Windows dev hosts have no SIGUSR1
+        return
+    # No deadline for a healthy drain: long messages finish. This only bounds
+    # how long a guild may go without playback progress before we call it stuck.
+    zombie_after_s = float(os.getenv('DRAIN_ZOMBIE_SEC', '30'))
+
+    def _on_drain() -> None:
+        from misarmy_talkbot.app.drain import drain_and_exit
+
+        loop.create_task(
+            drain_and_exit(zombie_after_s=zombie_after_s), name='drain'
+        )
+
+    loop.add_signal_handler(sigusr1, _on_drain)
+
+
 def _install_sigterm(
     bot: commands.Bot, loop: asyncio.AbstractEventLoop
 ) -> None:
@@ -216,6 +235,7 @@ async def _serve(bot: commands.Bot, token: str) -> None:
         await asyncio.gather(bot.login(token), warm_imports())
 
         _install_sigterm(bot, loop)
+        _install_sigusr1(loop)
         with tracker.phase('bot_build'):
             _attach_app(bot)
         asyncio.create_task(_connect_lavalink(bot), name='lavalink_connect')

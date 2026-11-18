@@ -13,6 +13,10 @@ from typing import TYPE_CHECKING
 
 import discord
 
+from misarmy_talkbot.app.drain import (
+    lavalink_ready_event,
+    restore_drain_snapshot,
+)
 from misarmy_talkbot.app.follow_ops import message_for_followed
 from misarmy_talkbot.app.voice_sync import drop_follower
 from misarmy_talkbot.app.voice_watchdog import (
@@ -102,6 +106,9 @@ async def _first_boot(bot: commands.Bot) -> None:
                 *(_load_guild_config(guild) for guild in bot.guilds),
             )
         tracker.mark_ready()
+        # Restore a drain snapshot (if the last process drained). Runs after DB
+        # tables exist; it waits for Lavalink before touching voice.
+        asyncio.create_task(restore_drain_snapshot(bot), name='drain_restore')
         interval = float(os.getenv('METRICS_SNAPSHOT_INTERVAL_SECONDS', '300'))
         asyncio.create_task(
             MetricsRegistry.instance().snapshot_loop_task(
@@ -369,6 +376,7 @@ def register_events(bot: commands.Bot) -> None:
             payload.resumed,
         )
         startup_tracker().end('lavalink_connect')
+        lavalink_ready_event().set()
 
     @bot.event
     async def on_wavelink_node_closed(

@@ -23,6 +23,9 @@ PROJECT="misarmy-talkbot"
 SERVICE="misarmy_talkbot"
 COMPOSE=(docker compose -p "$PROJECT" -f docker-compose.prod.yml)
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
+# Upper bound on a drain. The bot itself has no deadline for a healthy drain
+# (long messages finish); this only catches a dead process.
+DRAIN_TIMEOUT="${DRAIN_TIMEOUT:-1800}"
 LAST_GOOD_FILE="$PROD_DIR/.last-good"
 
 TAG="sha-${SHA:0:7}"
@@ -64,7 +67,35 @@ wait_healthy() {
 deploy_image() {
   local image="$1"
   TALKBOT_IMAGE="$image" "${COMPOSE[@]}" up -d "$SERVICE" || return 1
+  # Restart policy was disabled for the drain (see drain_running); restore it.
+  local cid
+  cid="$("${COMPOSE[@]}" ps -q "$SERVICE" 2>/dev/null || true)"
+  [[ -n "$cid" ]] && docker update --restart=unless-stopped "$cid" >/dev/null
   wait_healthy
+}
+
+# Zero-disruption deploy: SIGUSR1 makes the bot finish the audio it is playing,
+# snapshot its queue to the DB, and exit 0 without a graceful voice teardown.
+# The new container then restores the snapshot on boot. Only the first deploy
+# does this; rollbacks skip it.
+drain_running() {
+  local cid running code
+  cid="$("${COMPOSE[@]}" ps -q "$SERVICE" 2>/dev/null || true)"
+  [[ -z "$cid" ]] && return 0
+  running="$(docker inspect -f '{{.State.Running}}' "$cid" 2>/dev/null || echo false)"
+  [[ "$running" == true ]] || return 0
+  # Turn off the restart policy first, or Docker would restart the old image
+  # the moment it exits. deploy_image restores the policy after `up -d`.
+  docker update --restart=no "$cid" >/dev/null
+  log "draining running bot (SIGUSR1); waiting for the queue snapshot"
+  docker kill -s SIGUSR1 "$cid" >/dev/null
+  if code="$(timeout "$DRAIN_TIMEOUT" docker wait "$cid")"; then
+    log "drained (exit $code)"
+  else
+    # Event loop is dead, not just busy. Fall back to the normal SIGTERM path.
+    log "drain did not finish within ${DRAIN_TIMEOUT}s; falling back to graceful stop"
+    docker update --restart=unless-stopped "$cid" >/dev/null
+  fi
 }
 
 prune_images() {
@@ -98,6 +129,7 @@ log "previous image: ${PREVIOUS:-<none>}"
 
 # ---- 4. deploy and verify ---------------------------------------------------
 log "deploying $NEW_IMAGE"
+drain_running
 if deploy_image "$NEW_IMAGE"; then
   printf '%s\n' "$NEW_IMAGE" > "$LAST_GOOD_FILE"
   log "healthy on $NEW_IMAGE"

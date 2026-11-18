@@ -67,6 +67,57 @@ class PlaybackEngine:
         self.last_position_ms: int = 0
         self.last_progress_monotonic: float | None = None
         self.current_track_length_ms: int | None = None
+        # Drain (SIGUSR1): never start a new item; the item already playing may
+        # finish. Enqueue keeps working so no message is ever discarded.
+        self._draining = False
+        self._drain_started_at: float | None = None
+        self._busy = False
+        self._idle = asyncio.Event()
+        self._idle.set()
+
+    @property
+    def draining(self) -> bool:
+        return self._draining
+
+    def begin_drain(self) -> None:
+        """Stop starting new items. The item currently playing (if any) finishes."""
+        if self._draining:
+            return
+        self._draining = True
+        self._drain_started_at = time.monotonic()
+        if not self._busy:
+            # Parked on an empty or not-ready head: nothing to finish, stop now.
+            self._idle.set()
+            if self._speak_task is not None and not self._speak_task.done():
+                self._speak_task.cancel()
+
+    async def wait_idle(
+        self, *, zombie_after_s: float, poll_s: float = 1.0
+    ) -> bool:
+        """Wait for the playing item to finish, with no fixed deadline.
+
+        A long message is fine: we keep waiting as long as playback makes
+        progress (Lavalink position heartbeats). Returns False only when the
+        guild has shown no progress for ``zombie_after_s`` (a wedged track or
+        a dead event loop); the caller then snapshots anyway.
+        """
+        while True:
+            try:
+                await asyncio.wait_for(self._idle.wait(), timeout=poll_s)
+                return True
+            except TimeoutError:
+                pass
+            last_signs = [
+                t
+                for t in (
+                    self.last_progress_monotonic,
+                    self.play_started_monotonic,
+                    self._drain_started_at,
+                )
+                if t is not None
+            ]
+            if time.monotonic() - max(last_signs) > zombie_after_s:
+                return False
 
     def _master_voice_channel(
         self,
@@ -87,6 +138,8 @@ class PlaybackEngine:
         return member.voice.channel
 
     def start(self) -> None:
+        if self._draining:
+            return
         if self._speak_task is None or self._speak_task.done():
             self._speak_task = asyncio.create_task(
                 self._supervised_speak(), name=f'speak_{self.guild_id}'
@@ -441,11 +494,25 @@ class PlaybackEngine:
                 backoff = min(backoff * 2.0, 30.0)
 
     async def _speak_loop(self) -> None:
-        while not self._stopped:
+        while not self._stopped and not self._draining:
             audio = await self._queue.wait_until_head(AudioState.READY)
-            if self._stopped:
+            if self._stopped or self._draining:
+                # Head stays queued for the snapshot; it is not played.
                 return
-            await self._play_one(audio)
+            # No await between the check above and this mark, so begin_drain
+            # sees a consistent busy state.
+            self._busy = True
+            self._idle.clear()
+            try:
+                await self._play_one(audio)
+            finally:
+                self._busy = False
+                if self._draining:
+                    self._idle.set()
+
+    def pending_items(self) -> list[AudioMessage]:
+        """Queued items in order (head first). Used by the drain snapshot."""
+        return list(self._queue)
 
     async def _play_one(self, audio: AudioMessage) -> None:
         channel = self._master_voice_channel()
