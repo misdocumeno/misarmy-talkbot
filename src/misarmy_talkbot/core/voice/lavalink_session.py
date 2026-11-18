@@ -3,21 +3,49 @@
 Replaces the old ``VoicePilot``: there is no health gate, no recovery supervisor,
 no close-code handling. Wavelink and Lavalink own voice-WS lifecycle and
 playback transport; the bot only asks "be in this channel" / "play this track".
+
+Voice health: wavelink only self-heals on close code 4014, and ``Player.connected``
+stays True after any other voice-WS close. Lavalink's ``playerUpdate`` carries the
+real ``state.connected`` flag, so this module tracks that flag and re-joins the
+same channel when the voice transport is down (audio would otherwise be "played"
+into a dead connection while every Lavalink counter keeps moving).
 """
 
 from __future__ import annotations
 
 import asyncio
+import os
+import time
 from typing import TYPE_CHECKING, cast
 
 import discord
 import wavelink
 
+from misarmy_talkbot.core.follow.registry import FollowRegistry
 from misarmy_talkbot.observability.logger import logger
+from misarmy_talkbot.observability.metrics import MetricsRegistry
 
 if TYPE_CHECKING:
     from discord.ext import commands
     from wavelink.types.request import Request as LavalinkRequest
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == '':
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+# How long a "connected: false" playerUpdate must persist before we rejoin.
+VOICE_DOWN_GRACE_SEC = _env_float('VOICE_DOWN_GRACE_SEC', 10.0)
+# Delay after a voice-WS close so a real kick/move (voice state update) wins.
+VOICE_WS_CLOSE_DELAY_SEC = _env_float('VOICE_WS_CLOSE_DELAY_SEC', 3.0)
+# Minimum gap between automatic (event-driven) voice recoveries.
+VOICE_RECOVERY_COOLDOWN_SEC = _env_float('VOICE_RECOVERY_COOLDOWN_SEC', 20.0)
 
 
 class LavalinkSession:
@@ -31,6 +59,13 @@ class LavalinkSession:
         self._bot = bot
         self.guild_id = guild_id
         self._requested_moves: set[int] = set()
+        # Last Lavalink playerUpdate ``connected`` flag (None = not known yet).
+        self._voice_ws_connected: bool | None = None
+        # Monotonic time when Lavalink first reported the voice WS as down.
+        self._voice_down_since: float | None = None
+        self._recover_lock = asyncio.Lock()
+        self._last_recovery: float | None = None
+        self._recovery_task: asyncio.Task[None] | None = None
 
     def consume_requested_move(self, channel_id: int) -> bool:
         """True once per ``move_to`` we issued, so other moves can be told apart.
@@ -55,6 +90,137 @@ class LavalinkSession:
         if isinstance(voice_client, wavelink.Player):
             return voice_client
         return None
+
+    # ---- voice transport health ------------------------------------------
+
+    @property
+    def voice_ws_connected(self) -> bool | None:
+        return self._voice_ws_connected
+
+    def voice_down_for(self) -> float | None:
+        """Seconds Lavalink has reported the voice WS down, else None."""
+        if self._voice_down_since is None:
+            return None
+        return max(0.0, time.monotonic() - self._voice_down_since)
+
+    def voice_healthy(self) -> bool:
+        """True when a player exists and neither wavelink nor Lavalink says it is down."""
+        player = self.player
+        if player is None or not player.connected:
+            return False
+        return self._voice_ws_connected is not False
+
+    def note_voice_state(self, connected: bool, ping: int) -> None:
+        """Feed a Lavalink playerUpdate ``connected``/``ping`` into health tracking."""
+        metrics = MetricsRegistry.instance()
+        self._voice_ws_connected = connected
+        metrics.set_gauge(
+            'lavalink_voice_connected',
+            self.guild_id,
+            1.0 if connected else 0.0,
+        )
+        metrics.set_gauge('lavalink_ping_ms', self.guild_id, float(ping))
+        if connected:
+            if self._voice_down_since is not None:
+                logger.info(
+                    'voice_restored guild_id=%s down_for_s=%.1f',
+                    self.guild_id,
+                    time.monotonic() - self._voice_down_since,
+                )
+            self._voice_down_since = None
+            return
+        if self._voice_down_since is None:
+            self._voice_down_since = time.monotonic()
+            logger.error(
+                'voice_down_detected guild_id=%s source=playerUpdate',
+                self.guild_id,
+            )
+        if time.monotonic() - self._voice_down_since >= VOICE_DOWN_GRACE_SEC:
+            self.schedule_recovery('playerUpdate_disconnected')
+
+    def schedule_recovery(self, reason: str, *, delay: float = 0.0) -> None:
+        """Rejoin the current channel in the background, rate limited by cooldown."""
+        if self._recovery_task is not None and not self._recovery_task.done():
+            return
+        if (
+            self._last_recovery is not None
+            and time.monotonic() - self._last_recovery
+            < VOICE_RECOVERY_COOLDOWN_SEC
+        ):
+            return
+        self._recovery_task = asyncio.create_task(
+            self._scheduled_recovery(reason, delay),
+            name=f'voice_recover_{self.guild_id}',
+        )
+
+    async def _scheduled_recovery(self, reason: str, delay: float) -> None:
+        if delay > 0:
+            await asyncio.sleep(delay)
+        await self.recover_voice(reason)
+
+    async def recover_voice(self, reason: str) -> bool:
+        """Disconnect and rejoin the channel the player is in.
+
+        Keeps follow state untouched. Returns True when a player is back in voice.
+        """
+        async with self._recover_lock:
+            metrics = MetricsRegistry.instance()
+            player = self.player
+            channel = player.channel if player is not None else None
+            if channel is None:
+                return False
+            if not FollowRegistry.instance().is_tracked(self.guild_id):
+                # A kick/move/unfollow raced us: do not fight the user's intent.
+                logger.info(
+                    'voice_recovery_skipped guild_id=%s reason=%s untracked',
+                    self.guild_id,
+                    reason,
+                )
+                return False
+            channel_id = channel.id
+            self._last_recovery = time.monotonic()
+            metrics.inc('voice_recovery_total', self.guild_id)
+            logger.warning(
+                'voice_recovery_start guild_id=%s channel_id=%s reason=%s',
+                self.guild_id,
+                channel_id,
+                reason,
+            )
+            await self.disconnect()
+            error = await self.ensure_connected_to(channel_id)
+            if error is not None:
+                metrics.inc('voice_recovery_failed_total', self.guild_id)
+                logger.error(
+                    'voice_recovery_failed guild_id=%s channel_id=%s err=%s',
+                    self.guild_id,
+                    channel_id,
+                    error,
+                )
+                return False
+            self._voice_ws_connected = None
+            self._voice_down_since = None
+            logger.info(
+                'voice_recovery_done guild_id=%s channel_id=%s reason=%s',
+                self.guild_id,
+                channel_id,
+                reason,
+            )
+            return True
+
+    def on_voice_ws_closed(self, code: object, by_remote: bool) -> None:
+        """Wavelink reported the voice WS closed. Recover when Discord dropped it."""
+        metrics = MetricsRegistry.instance()
+        metrics.inc('voice_ws_closed_total', self.guild_id)
+        logger.error(
+            'voice_ws_closed guild_id=%s code=%s by_remote=%s',
+            self.guild_id,
+            code,
+            by_remote,
+        )
+        if by_remote:
+            self.schedule_recovery('ws_closed', delay=VOICE_WS_CLOSE_DELAY_SEC)
+
+    # ---- connect / move / disconnect -------------------------------------
 
     async def ensure_connected_to(
         self, channel_id: int

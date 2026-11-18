@@ -398,15 +398,24 @@ def register_events(bot: commands.Bot) -> None:
         guild_session = _session_for_payload(payload)
         if guild_session is not None:
             guild_session.engine.on_player_update(int(payload.position))
+            guild_session.lavalink.note_voice_state(
+                bool(getattr(payload, 'connected', True)),
+                int(getattr(payload, 'ping', -1)),
+            )
 
     @bot.event
     async def on_wavelink_websocket_closed(
         payload: wavelink.WebsocketClosedEventPayload,
     ) -> None:
-        guild_id = _payload_guild_id(payload)
+        guild_session = _session_for_payload(payload)
+        if guild_session is not None:
+            guild_session.lavalink.on_voice_ws_closed(
+                payload.code, bool(payload.by_remote)
+            )
+            return
         logger.warning(
             'lavalink_ws_closed guild_id=%s code=%s reason=%s by_remote=%s',
-            guild_id,
+            _payload_guild_id(payload),
             payload.code,
             payload.reason,
             payload.by_remote,

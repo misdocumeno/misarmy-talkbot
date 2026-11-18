@@ -489,6 +489,24 @@ class PlaybackEngine:
             await self._drop_head(audio)
             return
 
+        # wavelink keeps reporting "connected" after a non-4014 voice close, so
+        # check Lavalink's own voice state and rejoin before playing into a
+        # dead transport (the play would be counted but never heard).
+        if not self._lavalink.voice_healthy():
+            logger.warning(
+                'speak_voice_down guild_id=%s message_id=%s; rejoining voice',
+                self.guild_id,
+                audio.original.id,
+            )
+            await self._lavalink.recover_voice('speak_voice_down')
+            player = self._lavalink.player
+            if player is None:
+                logger.warning(
+                    'speak_no_player guild_id=%s after_recover', self.guild_id
+                )
+                await self._drop_head(audio)
+                return
+
         # Lavalink http source: plain URL (bot serves MP3 from RAM).
         try:
             tracks = await wavelink.Pool.fetch_tracks(audio.track_url)

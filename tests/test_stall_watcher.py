@@ -31,6 +31,7 @@ async def test_stall_watcher_logs_frozen_progress() -> None:
 
     session = MagicMock()
     session.guild_id = 99
+    session.lavalink.voice_down_for.return_value = None
     session.engine = engine
     registry = MagicMock()
     registry.iter_alive.return_value = [session]
@@ -70,6 +71,7 @@ async def test_processing_head_without_gen_task_alerts() -> None:
 
     session = MagicMock()
     session.guild_id = 42
+    session.lavalink.voice_down_for.return_value = None
     session.engine = engine
     registry = MagicMock()
     registry.iter_alive.return_value = [session]

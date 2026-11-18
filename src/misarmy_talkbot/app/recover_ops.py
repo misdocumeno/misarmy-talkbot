@@ -44,6 +44,8 @@ async def recover_diagnose(
             f'stuck_for_s={engine.note_progress_for_stall()}',
             f'track_length_ms={engine.current_track_length_ms}',
             f'player={session.lavalink.player is not None}',
+            f'voice_ws_connected={session.lavalink.voice_ws_connected}',
+            f'voice_down_for_s={session.lavalink.voice_down_for()}',
         ])
     metrics = MetricsRegistry.instance().snapshot_guild_embed_fields(guild_id)
     if metrics:

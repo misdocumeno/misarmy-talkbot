@@ -30,6 +30,7 @@ class StallWatcher:
         self._tts_zero_progress_sec = _env_float(
             'STALL_TTS_ZERO_PROGRESS_SEC', 60.0
         )
+        self._voice_down_sec = _env_float('STALL_VOICE_DOWN_SEC', 30.0)
         self._interval = _env_float('STALL_POLL_INTERVAL_SEC', 10.0)
         self._last_alert: dict[tuple[int, str], float] = {}
 
@@ -46,6 +47,21 @@ class StallWatcher:
             for session in GuildSessionRegistry.instance().iter_alive():
                 engine = session.engine
                 guild_id = session.guild_id
+                voice_down = session.lavalink.voice_down_for()
+                if voice_down is None:
+                    metrics.set_gauge(
+                        'lavalink_voice_down_seconds', guild_id, 0.0
+                    )
+                else:
+                    metrics.set_gauge(
+                        'lavalink_voice_down_seconds', guild_id, voice_down
+                    )
+                    if voice_down >= self._voice_down_sec:
+                        self._alert(
+                            guild_id,
+                            'voice_disconnected',
+                            down_for_s=round(voice_down, 1),
+                        )
                 stuck_for = engine.note_progress_for_stall()
                 if stuck_for is not None:
                     metrics.set_gauge(

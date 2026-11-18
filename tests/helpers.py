@@ -83,6 +83,22 @@ class FakeLavalinkSession:
     async def disconnect(self) -> None:
         await self.player.disconnect(force=True)
 
+    def voice_healthy(self) -> bool:
+        return True
+
+    async def recover_voice(self, reason: str) -> bool:
+        _ = reason
+        return True
+
+    def voice_down_for(self) -> float | None:
+        return None
+
+    def note_voice_state(self, connected: bool, ping: int) -> None:
+        _ = (connected, ping)
+
+    def schedule_recovery(self, reason: str, *, delay: float = 0.0) -> None:
+        _ = (reason, delay)
+
     async def play_track(
         self, player: FakeLavalinkPlayer, track: object
     ) -> None:
