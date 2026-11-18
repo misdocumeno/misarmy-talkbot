@@ -109,8 +109,10 @@ class StallWatcher:
     def _alert(self, guild_id: int, kind: str, **fields: object) -> None:
         key = (guild_id, kind)
         now = time.monotonic()
-        last = self._last_alert.get(key, 0.0)
-        if now - last < 60.0:
+        # monotonic() counts from boot, so a 0.0 sentinel would suppress the
+        # first alert on a freshly booted host/runner. Use key presence instead.
+        last = self._last_alert.get(key)
+        if last is not None and now - last < 60.0:
             return
         self._last_alert[key] = now
         MetricsRegistry.instance().inc('stall_detected_total', guild_id)

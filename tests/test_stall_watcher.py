@@ -89,3 +89,14 @@ async def test_processing_head_without_gen_task_alerts() -> None:
         asyncio.create_task(stop_soon())
         await watcher.run(stop)
     assert metrics._counters.get('stall_detected_total', {}).get(42, 0) >= 1
+
+
+def test_alert_not_suppressed_on_freshly_booted_clock() -> None:
+    reset_singletons()
+    metrics = MetricsRegistry.instance()
+    watcher = StallWatcher()
+    with patch(
+        'misarmy_talkbot.observability.stall.time.monotonic', return_value=5.0
+    ):
+        watcher._alert(7, 'playback_no_progress', stuck_for=1.0)
+    assert metrics._counters.get('stall_detected_total', {}).get(7, 0) == 1
