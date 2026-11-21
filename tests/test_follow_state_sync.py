@@ -147,6 +147,41 @@ async def test_bot_move_we_requested_keeps_follows(bot: FakeBot) -> None:
 
 
 @pytest.mark.asyncio
+async def test_bot_own_recovery_disconnect_keeps_follows(bot: FakeBot) -> None:
+    register_events(bot)  # type: ignore[arg-type]
+    await _follow_master(bot)
+    guild_session = GuildSessionRegistry.instance().get(GUILD_ID)
+    assert guild_session is not None
+    guild_session.lavalink._recovering = True
+
+    # Recovery disconnects the bot before rejoining; that must not unfollow.
+    await bot.handlers['on_voice_state_update'](
+        _bot_member(bot), _voice_state(100), _voice_state(None)
+    )
+
+    assert FollowRegistry.instance().master(GUILD_ID) == MASTER_ID
+    assert GuildSessionRegistry.instance().get(GUILD_ID) is guild_session
+
+
+@pytest.mark.asyncio
+async def test_kick_after_recovery_window_still_clears_follows(
+    bot: FakeBot,
+) -> None:
+    register_events(bot)  # type: ignore[arg-type]
+    await _follow_master(bot)
+    guild_session = GuildSessionRegistry.instance().get(GUILD_ID)
+    assert guild_session is not None
+    guild_session.lavalink._recovering = False
+
+    await bot.handlers['on_voice_state_update'](
+        _bot_member(bot), _voice_state(100), _voice_state(None)
+    )
+
+    assert not FollowRegistry.instance().is_tracked(GUILD_ID)
+    assert GuildSessionRegistry.instance().get(GUILD_ID) is None
+
+
+@pytest.mark.asyncio
 async def test_message_is_only_spoken_in_its_own_guild(bot: FakeBot) -> None:
     follow_registry = FollowRegistry.instance()
     for guild_id in (GUILD_ID, 2):

@@ -179,7 +179,7 @@ class LavalinkSession:
         async with self._recover_lock:
             metrics = MetricsRegistry.instance()
             player = self.player
-            if player is not None and player.channel is not None:
+            if player is not None:
                 self._home_channel_id = player.channel.id
             channel_id = self._home_channel_id
             if channel_id is None:
