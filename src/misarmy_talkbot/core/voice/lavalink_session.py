@@ -46,6 +46,9 @@ VOICE_DOWN_GRACE_SEC = _env_float('VOICE_DOWN_GRACE_SEC', 10.0)
 VOICE_WS_CLOSE_DELAY_SEC = _env_float('VOICE_WS_CLOSE_DELAY_SEC', 3.0)
 # Minimum gap between automatic (event-driven) voice recoveries.
 VOICE_RECOVERY_COOLDOWN_SEC = _env_float('VOICE_RECOVERY_COOLDOWN_SEC', 20.0)
+# Retry a failed rejoin this many times, this many seconds apart.
+VOICE_RETRY_MAX = int(_env_float('VOICE_RETRY_MAX', 5.0))
+VOICE_RETRY_DELAY_SEC = _env_float('VOICE_RETRY_DELAY_SEC', 30.0)
 
 
 class LavalinkSession:
@@ -66,6 +69,16 @@ class LavalinkSession:
         self._recover_lock = asyncio.Lock()
         self._last_recovery: float | None = None
         self._recovery_task: asyncio.Task[None] | None = None
+        # True while our own recovery disconnects and reconnects. The bot's own
+        # voice-state events during this window must not drop follow state.
+        self._recovering = False
+        # Channel to rejoin when the player is gone (failed reconnect leaves none).
+        self._home_channel_id: int | None = None
+        self._recover_failures = 0
+
+    @property
+    def is_recovering(self) -> bool:
+        return self._recovering
 
     def consume_requested_move(self, channel_id: int) -> bool:
         """True once per ``move_to`` we issued, so other moves can be told apart.
@@ -166,8 +179,10 @@ class LavalinkSession:
         async with self._recover_lock:
             metrics = MetricsRegistry.instance()
             player = self.player
-            channel = player.channel if player is not None else None
-            if channel is None:
+            if player is not None and player.channel is not None:
+                self._home_channel_id = player.channel.id
+            channel_id = self._home_channel_id
+            if channel_id is None:
                 return False
             if not FollowRegistry.instance().is_tracked(self.guild_id):
                 # A kick/move/unfollow raced us: do not fight the user's intent.
@@ -177,7 +192,6 @@ class LavalinkSession:
                     reason,
                 )
                 return False
-            channel_id = channel.id
             self._last_recovery = time.monotonic()
             metrics.inc('voice_recovery_total', self.guild_id)
             logger.warning(
@@ -186,17 +200,25 @@ class LavalinkSession:
                 channel_id,
                 reason,
             )
-            await self.disconnect()
-            error = await self.ensure_connected_to(channel_id)
+            self._recovering = True
+            try:
+                await self.disconnect()
+                error = await self.ensure_connected_to(channel_id)
+            finally:
+                self._recovering = False
             if error is not None:
                 metrics.inc('voice_recovery_failed_total', self.guild_id)
                 logger.error(
-                    'voice_recovery_failed guild_id=%s channel_id=%s err=%s',
+                    'voice_recovery_failed guild_id=%s channel_id=%s err=%s '
+                    'attempt=%s',
                     self.guild_id,
                     channel_id,
                     error,
+                    self._recover_failures + 1,
                 )
+                self._schedule_retry(reason)
                 return False
+            self._recover_failures = 0
             self._voice_ws_connected = None
             self._voice_down_since = None
             logger.info(
@@ -206,6 +228,25 @@ class LavalinkSession:
                 reason,
             )
             return True
+
+    def _schedule_retry(self, reason: str) -> None:
+        """Keep follow state and retry the home channel with a bounded backoff.
+
+        Gives up after ``VOICE_RETRY_MAX`` attempts; the follow state stays, so
+        a later ``/follow`` or a voice move by the master picks the bot back up.
+        """
+        self._recover_failures += 1
+        if self._recover_failures > VOICE_RETRY_MAX:
+            logger.error(
+                'voice_recovery_gave_up guild_id=%s attempts=%s',
+                self.guild_id,
+                self._recover_failures,
+            )
+            return
+        self._recovery_task = asyncio.create_task(
+            self._scheduled_recovery(f'{reason}_retry', VOICE_RETRY_DELAY_SEC),
+            name=f'voice_retry_{self.guild_id}',
+        )
 
     def on_voice_ws_closed(self, code: object, by_remote: bool) -> None:
         """Wavelink reported the voice WS closed. Recover when Discord dropped it."""

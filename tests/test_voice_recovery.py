@@ -112,6 +112,80 @@ async def test_recover_voice_rejoins_same_channel() -> None:
 
 
 @pytest.mark.asyncio
+async def test_recovery_flag_is_set_only_while_recovering() -> None:
+    reset_singletons()
+    session = _session()
+    player = _player_on(4242)
+    seen: list[bool] = []
+
+    async def connect(_channel_id: int) -> None:
+        seen.append(session.is_recovering)
+        return None
+
+    with (
+        patch.object(
+            LavalinkSession,
+            'player',
+            new_callable=PropertyMock,
+            return_value=player,
+        ),
+        patch(
+            'misarmy_talkbot.core.voice.lavalink_session.FollowRegistry.instance',
+            return_value=_tracked_registry(True),
+        ),
+        patch.object(session, 'disconnect', new=AsyncMock()),
+        patch.object(session, 'ensure_connected_to', new=connect),
+    ):
+        assert await session.recover_voice('test') is True
+    assert seen == [True]
+    assert session.is_recovering is False
+
+
+@pytest.mark.asyncio
+async def test_failed_rejoin_keeps_home_channel_and_retries() -> None:
+    reset_singletons()
+    session = _session()
+    player = _player_on(4242)
+    with (
+        patch.object(
+            LavalinkSession,
+            'player',
+            new_callable=PropertyMock,
+            return_value=player,
+        ),
+        patch(
+            'misarmy_talkbot.core.voice.lavalink_session.FollowRegistry.instance',
+            return_value=_tracked_registry(True),
+        ),
+        patch.object(ls, 'VOICE_RETRY_DELAY_SEC', 999.0),
+        patch.object(session, 'disconnect', new=AsyncMock()),
+        patch.object(
+            session,
+            'ensure_connected_to',
+            new=AsyncMock(return_value=PermissionError('connect failed')),
+        ),
+    ):
+        assert await session.recover_voice('ws_closed') is False
+    # The player is gone after a failed connect; the home channel must remain.
+    assert session._home_channel_id == 4242
+    assert session._recover_failures == 1
+    assert session._recovery_task is not None
+    session._recovery_task.cancel()
+
+
+@pytest.mark.asyncio
+async def test_retries_stop_after_max_attempts() -> None:
+    reset_singletons()
+    session = _session()
+    session._home_channel_id = 4242
+    with patch.object(ls, 'VOICE_RETRY_MAX', 2):
+        session._recover_failures = 2
+        session._schedule_retry('ws_closed')
+    assert session._recover_failures == 3
+    assert session._recovery_task is None
+
+
+@pytest.mark.asyncio
 async def test_recover_voice_skips_when_follow_no_longer_tracked() -> None:
     reset_singletons()
     session = _session()

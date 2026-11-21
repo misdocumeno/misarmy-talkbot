@@ -238,6 +238,12 @@ def register_events(bot: commands.Bot) -> None:
                 )
             ):
                 return
+            if after.channel is None and guild_session.lavalink.is_recovering:
+                # Our own recovery disconnect, not a kick: keep follow state.
+                logger.info(
+                    'bot_voice_left_during_recovery guild_id=%s', guild_id
+                )
+                return
             logger.info(
                 'bot_voice_changed_externally guild_id=%s moved_to=%s',
                 guild_id,
